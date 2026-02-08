@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lola — Tu vendedora virtual en WhatsApp</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300;1,9..40,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --green: #25D366;
+  --green-dim: #1da851;
+  --green-glow: rgba(37, 211, 102, 0.15);
+  --dark: #0a0a0a;
+  --dark-card: #131313;
+  --dark-elevated: #1a1a1a;
+  --dark-border: #222;
+  --text: #e8e8e8;
+  --text-dim: #888;
+  --text-muted: #555;
+  --serif: 'Instrument Serif', Georgia, serif;
+  --sans: 'DM Sans', system-ui, sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--dark);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Grain overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+a { color: var(--green); text-decoration: none; }
+a:hover { color: var(--text); }
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ═══════════════ NAV ═══════════════ */
+nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 20px 0;
+  backdrop-filter: blur(20px);
+  background: rgba(10, 10, 10, 0.8);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.3s;
+}
+
+nav.scrolled { border-bottom-color: var(--dark-border); }
+
+nav .container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo {
+  font-family: var(--serif);
+  font-size: 28px;
+  color: var(--text);
+  letter-spacing: -0.5px;
+}
+
+.logo span { color: var(--green); }
+
+nav ul {
+  display: flex;
+  list-style: none;
+  gap: 32px;
+  align-items: center;
+}
+
+nav ul a {
+  color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 400;
+  transition: color 0.2s;
+  letter-spacing: 0.3px;
+}
+
+nav ul a:hover { color: var(--text); }
+
+.nav-cta {
+  background: var(--green);
+  color: var(--dark) !important;
+  padding: 10px 24px;
+  border-radius: 100px;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  letter-spacing: 0.5px !important;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.nav-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(37, 211, 102, 0.3);
+  color: var(--dark) !important;
+}
+
+.menu-toggle { display: none; background: none; border: none; color: var(--text); font-size: 24px; cursor: pointer; }
+
+/* ═══════════════ HERO ═══════════════ */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  padding: 120px 0 80px;
+  position: relative;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -200px;
+  right: -300px;
+  width: 800px;
+  height: 800px;
+  background: radial-gradient(circle, rgba(37, 211, 102, 0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.hero .container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: center;
+}
+
+.hero-content { position: relative; }
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 6px 8px;
+  background: var(--dark-elevated);
+  border: 1px solid var(--dark-border);
+  border-radius: 100px;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 32px;
+  animation: fadeInUp 0.8s ease both;
+}
+
+.hero-badge::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(48px, 6vw, 80px);
+  line-height: 1.05;
+  letter-spacing: -2px;
+  margin-bottom: 24px;
+  animation: fadeInUp 0.8s ease 0.1s both;
+}
+
+.hero h1 em {
+  font-style: italic;
+  color: var(--green);
+}
+
+.hero-subtitle {
+  font-size: 18px;
+  color: var(--text-dim);
+  max-width: 440px;
+  line-height: 1.7;
+  margin-bottom: 40px;
+  animation: fadeInUp 0.8s ease 0.2s both;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  animation: fadeInUp 0.8s ease 0.3s both;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--green);
+  color: var(--dark);
+  padding: 16px 32px;
+  border-radius: 100px;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.3px;
+  transition: all 0.3s;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(37, 211, 102, 0.35);
+  color: var(--dark);
+}
+
+.btn-primary svg { width: 20px; height: 20px; }
+
+.btn-secondary {
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 16px 24px;
+  border: 1px solid var(--dark-border);
+  border-radius: 100px;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+/* WhatsApp Phone Mock */
+.hero-phone {
+  position: relative;
+  animation: fadeInUp 0.8s ease 0.4s both;
+}
+
+.phone-frame {
+  width: 340px;
+  margin: 0 auto;
+  background: #111;
+  border-radius: 40px;
+  padding: 12px;
+  border: 1px solid #2a2a2a;
+  box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset;
+}
+
+.phone-screen {
+  background: #0b141a;
+  border-radius: 30px;
+  overflow: hidden;
+}
+
+.wa-header {
+  background: #1f2c34;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wa-avatar {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, var(--green), var(--green-dim));
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: white;
+}
+
+.wa-name {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.wa-status {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.wa-chat {
+  padding: 16px;
+  min-height: 480px;
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.wa-msg {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  position: relative;
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.wa-msg.visible {
+  animation: msgAppear 0.3s ease forwards;
+}
+
+@keyframes msgAppear {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.wa-msg.sent {
+  background: #005c4b;
+  align-self: flex-end;
+  border-bottom-right-radius: 2px;
+}
+
+.wa-msg.received {
+  background: #1f2c34;
+  align-self: flex-start;
+  border-bottom-left-radius: 2px;
+}
+
+.wa-msg .time {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  float: right;
+  margin-left: 8px;
+  margin-top: 4px;
+}
+
+.wa-typing {
+  align-self: flex-start;
+  background: #1f2c34;
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: none;
+  gap: 4px;
+}
+
+.wa-typing.visible { display: flex; }
+
+.wa-typing span {
+  width: 6px;
+  height: 6px;
+  background: var(--text-dim);
+  border-radius: 50%;
+  animation: typingBounce 1.4s infinite;
+}
+
+.wa-typing span:nth-child(2) { animation-delay: 0.2s; }
+.wa-typing span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.wa-input {
+  background: #1f2c34;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wa-input-field {
+  flex: 1;
+  background: #2a3942;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 16px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--sans);
+  outline: none;
+}
+
+.wa-input-field::placeholder { color: #8696a0; }
+
+.wa-input-send {
+  width: 32px;
+  height: 32px;
+  background: var(--green);
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.wa-input-send:hover { transform: scale(1.1); }
+.wa-input-send:active { transform: scale(0.95); }
+
+/* ═══════════════ PROBLEM ═══════════════ */
+.problem {
+  padding: 120px 0;
+  position: relative;
+}
+
+.problem::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dark-border), transparent);
+}
+
+.section-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  color: var(--green);
+  margin-bottom: 20px;
+  font-weight: 500;
+}
+
+.problem h2 {
+  font-family: var(--serif);
+  font-size: clamp(36px, 4vw, 56px);
+  line-height: 1.15;
+  letter-spacing: -1.5px;
+  max-width: 700px;
+  margin-bottom: 60px;
+}
+
+.problem h2 em {
+  font-style: italic;
+  color: var(--green);
+}
+
+.problem-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.problem-card {
+  background: var(--dark-card);
+  border: 1px solid var(--dark-border);
+  border-radius: 16px;
+  padding: 32px;
+  transition: all 0.3s;
+}
+
+.problem-card:hover {
+  border-color: var(--text-muted);
+  transform: translateY(-4px);
+}
+
+.problem-icon {
+  margin-bottom: 20px;
+  display: block;
+  line-height: 0;
+}
+
+.problem-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  letter-spacing: -0.3px;
+}
+
+.problem-card p {
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* ═══════════════ FEATURES ═══════════════ */
+.features {
+  padding: 120px 0;
+  position: relative;
+}
+
+.features::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dark-border), transparent);
+}
+
+.features h2 {
+  font-family: var(--serif);
+  font-size: clamp(36px, 4vw, 56px);
+  line-height: 1.15;
+  letter-spacing: -1.5px;
+  max-width: 600px;
+  margin-bottom: 60px;
+}
+
+.features h2 em { font-style: italic; color: var(--green); }
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.feature-item {
+  background: var(--dark-card);
+  border: 1px solid var(--dark-border);
+  border-radius: 16px;
+  padding: 36px;
+  display: flex;
+  gap: 20px;
+  transition: all 0.3s;
+}
+
+.feature-item:hover {
+  border-color: var(--text-muted);
+}
+
+.feature-icon {
+  width: 48px;
+  height: 48px;
+  background: var(--green-glow);
+  border: 1px solid rgba(37, 211, 102, 0.2);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.feature-item h3 {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  letter-spacing: -0.2px;
+}
+
+.feature-item p {
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ═══════════════ HOW IT WORKS ═══════════════ */
+.how {
+  padding: 120px 0;
+  position: relative;
+}
+
+.how::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dark-border), transparent);
+}
+
+.how h2 {
+  font-family: var(--serif);
+  font-size: clamp(36px, 4vw, 56px);
+  line-height: 1.15;
+  letter-spacing: -1.5px;
+  margin-bottom: 60px;
+}
+
+.how h2 em { font-style: italic; color: var(--green); }
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  position: relative;
+}
+
+.steps::before {
+  content: '';
+  position: absolute;
+  top: 40px;
+  left: 15%;
+  right: 15%;
+  height: 1px;
+  background: linear-gradient(90deg, var(--dark-border), var(--green), var(--dark-border));
+  opacity: 0.5;
+}
+
+.step {
+  text-align: center;
+  position: relative;
+}
+
+.step-number {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--dark-card);
+  border: 2px solid var(--green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+  font-family: var(--serif);
+  font-size: 32px;
+  color: var(--green);
+  position: relative;
+  z-index: 1;
+}
+
+.step h3 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  letter-spacing: -0.3px;
+}
+
+.step p {
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+/* ═══════════════ PRICING ═══════════════ */
+.pricing {
+  padding: 120px 0;
+  position: relative;
+}
+
+.pricing::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dark-border), transparent);
+}
+
+.pricing h2 {
+  font-family: var(--serif);
+  font-size: clamp(36px, 4vw, 56px);
+  line-height: 1.15;
+  letter-spacing: -1.5px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.pricing h2 em { font-style: italic; color: var(--green); }
+
+.pricing-subtitle {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 16px;
+  margin-bottom: 60px;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.price-card {
+  background: var(--dark-card);
+  border: 1px solid var(--dark-border);
+  border-radius: 20px;
+  padding: 40px;
+  position: relative;
+  transition: all 0.3s;
+}
+
+.price-card:hover {
+  transform: translateY(-4px);
+}
+
+.price-card.featured {
+  border-color: var(--green);
+  background: linear-gradient(180deg, rgba(37, 211, 102, 0.05) 0%, var(--dark-card) 100%);
+}
+
+.price-badge {
+  position: absolute;
+  top: -12px;
+  right: 24px;
+  background: var(--green);
+  color: var(--dark);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 14px;
+  border-radius: 100px;
+  letter-spacing: 0.5px;
+}
+
+.price-card h3 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  letter-spacing: -0.3px;
+}
+
+.price-desc {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.price-amount {
+  font-family: var(--serif);
+  font-size: 48px;
+  letter-spacing: -2px;
+  margin-bottom: 4px;
+}
+
+.price-amount span {
+  font-family: var(--sans);
+  font-size: 16px;
+  color: var(--text-dim);
+  letter-spacing: 0;
+}
+
+.price-period {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin-bottom: 32px;
+}
+
+.price-features {
+  list-style: none;
+  margin-bottom: 32px;
+}
+
+.price-features li {
+  padding: 8px 0;
+  font-size: 14px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.price-features li::before {
+  content: '✓';
+  color: var(--green);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.price-btn {
+  display: block;
+  text-align: center;
+  padding: 14px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.3s;
+  letter-spacing: 0.3px;
+}
+
+.price-btn.outline {
+  border: 1px solid var(--dark-border);
+  color: var(--text);
+}
+
+.price-btn.outline:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.price-btn.filled {
+  background: var(--green);
+  color: var(--dark);
+}
+
+.price-btn.filled:hover {
+  box-shadow: 0 8px 30px rgba(37, 211, 102, 0.3);
+  transform: translateY(-1px);
+  color: var(--dark);
+}
+
+/* ═══════════════ CTA FINAL ═══════════════ */
+.cta-final {
+  padding: 120px 0;
+  text-align: center;
+  position: relative;
+}
+
+.cta-final::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dark-border), transparent);
+}
+
+.cta-final::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 400px;
+  background: radial-gradient(ellipse, rgba(37, 211, 102, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.cta-final h2 {
+  font-family: var(--serif);
+  font-size: clamp(40px, 5vw, 64px);
+  line-height: 1.1;
+  letter-spacing: -2px;
+  margin-bottom: 20px;
+}
+
+.cta-final h2 em { font-style: italic; color: var(--green); }
+
+.cta-final p {
+  color: var(--text-dim);
+  font-size: 18px;
+  margin-bottom: 40px;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ═══════════════ DEMO ═══════════════ */
+.demo {
+  padding: 120px 0;
+  position: relative;
+}
+
+.demo::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dark-border), transparent);
+}
+
+.demo-phone {
+  max-width: 340px;
+  margin: 0 auto;
+}
+
+.demo-phone .phone-frame {
+  width: 100%;
+}
+
+.demo-phone .wa-chat {
+  min-height: 480px;
+  max-height: 480px;
+}
+
+/* ═══════════════ FOOTER ═══════════════ */
+footer {
+  padding: 40px 0;
+  border-top: 1px solid var(--dark-border);
+}
+
+footer .container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.footer-logo {
+  font-family: var(--serif);
+  font-size: 22px;
+}
+
+.footer-logo span { color: var(--green); }
+
+.footer-links {
+  display: flex;
+  gap: 24px;
+  list-style: none;
+}
+
+.footer-links a {
+  color: var(--text-muted);
+  font-size: 13px;
+  transition: color 0.2s;
+}
+
+.footer-links a:hover { color: var(--text-dim); }
+
+.footer-copy {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ═══════════════ ANIMATIONS ═══════════════ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ═══════════════ RESPONSIVE ═══════════════ */
+@media (max-width: 900px) {
+  .hero .container {
+    grid-template-columns: 1fr;
+    gap: 60px;
+    text-align: center;
+  }
+
+  .hero-subtitle { margin: 0 auto 40px; }
+  .hero-actions { justify-content: center; }
+
+  .phone-frame { width: 300px; }
+  .wa-chat { min-height: 320px; }
+
+  .problem-grid,
+  .feature-grid,
+  .steps,
+  .pricing-grid {
+    grid-template-columns: 1fr;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .steps::before { display: none; }
+
+  nav ul { display: none; }
+  nav ul.open {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: rgba(10, 10, 10, 0.95);
+    backdrop-filter: blur(20px);
+    padding: 24px;
+    border-bottom: 1px solid var(--dark-border);
+  }
+
+  .menu-toggle { display: block; }
+
+  footer .container {
+    flex-direction: column;
+    gap: 20px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-actions { flex-direction: column; }
+  .btn-primary, .btn-secondary { width: 100%; justify-content: center; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ NAV ═══════════════ -->
+<nav>
+  <div class="container">
+    <div class="logo">l<span>o</span>la</div>
+    <button class="menu-toggle" onclick="document.querySelector('nav ul').classList.toggle('open')">☰</button>
+    <ul>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#como-funciona">Cómo funciona</a></li>
+      <li><a href="#precios">Precios</a></li>
+      <li><a href="#precios" class="nav-cta">PROBALA GRATIS</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-content">
+      <div class="hero-badge">Disponible 24/7</div>
+      <h1>Tu vendedora<br>virtual en<br><em>WhatsApp</em></h1>
+      <p class="hero-subtitle">Lola atiende a tus clientes, responde consultas, muestra productos y cierra ventas. Todo automático, todo por WhatsApp.</p>
+      <div class="hero-actions">
+        <a href="#precios" class="btn-primary">Probala gratis</a>
+        <a href="#como-funciona" class="btn-secondary">Cómo funciona</a>
+      </div>
+    </div>
+
+    <div class="hero-phone">
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="wa-header">
+            <div class="wa-avatar">L</div>
+            <div>
+              <div class="wa-name">Lola</div>
+              <div class="wa-status">escribiendo...</div>
+            </div>
+          </div>
+          <div class="wa-chat" id="waChat">
+            <div class="wa-msg sent">Hola, vi el anuncio. que hace lola exactamente? <span class="time">20:12</span></div>
+            <div class="wa-msg received">Hola! lola se conecta a tu whatsapp y atiende a tus clientes por vos, las 24hs. responde consultas, muestra productos y cierra ventas sola <span class="time">20:12</span></div>
+            <div class="wa-msg sent">y cuanto sale? <span class="time">20:13</span></div>
+            <div class="wa-msg received">El basico arranca en 29 usd/mes y tenes 7 dias gratis para probarlo con tu negocio <span class="time">20:13</span></div>
+            <div class="wa-msg sent">Tengo una tienda de ropa, me sirve? <span class="time">20:14</span></div>
+            <div class="wa-msg received">Te re sirve, es justo para eso. pasame tu catalogo y en el dia te la dejo andando <span class="time">20:14</span></div>
+            <div class="wa-typing" id="waTyping"><span></span><span></span><span></span></div>
+          </div>
+          <div class="wa-input">
+            <div class="wa-input-field">Mensaje</div>
+            <div class="wa-input-send">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#0b141a"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ PROBLEM ═══════════════ -->
+<section class="problem">
+  <div class="container">
+    <div class="section-label reveal">El problema</div>
+    <h2 class="reveal">Tus clientes te escriben.<br>Pero no siempre podés <em>responder</em></h2>
+    <div class="problem-grid">
+      <div class="problem-card reveal">
+        <span class="problem-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+        <h3>Perdés ventas</h3>
+        <p>Un cliente te escribe a las 23hs preguntando por un producto. Lo ves a la mañana. Ya compró en otro lado.</p>
+      </div>
+      <div class="problem-card reveal">
+        <span class="problem-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        <h3>No dás abasto</h3>
+        <p>5 clientes hablándote a la vez. Tardás en responder, se impacientan, se van. Plata que se pierde.</p>
+      </div>
+      <div class="problem-card reveal">
+        <span class="problem-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>
+        <h3>Siempre lo mismo</h3>
+        <p>"Cuánto sale?" "Tienen en negro?" "Hacen envíos?" Las mismas preguntas 50 veces por día.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ FEATURES ═══════════════ -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-label reveal">Qué hace Lola</div>
+    <h2 class="reveal">Todo lo que hace un<br>vendedor, pero <em>mejor</em></h2>
+    <div class="feature-grid">
+      <div class="feature-item reveal">
+        <div class="feature-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <div>
+          <h3>Texto y audios</h3>
+          <p>Entiende mensajes de texto y notas de voz. Responde como una persona, no como un robot.</p>
+        </div>
+      </div>
+      <div class="feature-item reveal">
+        <div class="feature-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>
+        <div>
+          <h3>Fotos y ubicación</h3>
+          <p>Le mandás una foto de un producto y lo busca. Compartís ubicación y te calcula el envío.</p>
+        </div>
+      </div>
+      <div class="feature-item reveal">
+        <div class="feature-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+        <div>
+          <h3>Stock en tiempo real</h3>
+          <p>Consulta tu inventario al instante. Nunca vende algo que no tenés en stock.</p>
+        </div>
+      </div>
+      <div class="feature-item reveal">
+        <div class="feature-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div>
+        <div>
+          <h3>Cierra la venta</h3>
+          <p>Pide datos, manda link de pago de MercadoPago, confirma el pedido. Todo en el chat.</p>
+        </div>
+      </div>
+      <div class="feature-item reveal">
+        <div class="feature-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
+        <div>
+          <h3>Estado de pedidos</h3>
+          <p>"Ya salió mi pedido?" Lola consulta el estado y le responde al cliente al toque.</p>
+        </div>
+      </div>
+      <div class="feature-item reveal">
+        <div class="feature-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
+        <div>
+          <h3>24/7, sin descanso</h3>
+          <p>Atiende a las 3am, los domingos, los feriados. Nunca se enferma, nunca se cansa.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ HOW IT WORKS ═══════════════ -->
+<section class="how" id="como-funciona">
+  <div class="container">
+    <div class="section-label reveal">Cómo funciona</div>
+    <h2 class="reveal">Arrancás en <em>3 pasos</em></h2>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-number">1</div>
+        <h3>Configuramos tu catálogo</h3>
+        <p>Cargamos tus productos, precios, stock y datos de la tienda. O lo conectamos a tu Shopify.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step-number">2</div>
+        <h3>Conectamos tu WhatsApp</h3>
+        <p>Vinculamos Lola a tu número de WhatsApp Business. Tus clientes ni se enteran del cambio.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step-number">3</div>
+        <h3>Lola vende sola</h3>
+        <p>Empieza a atender clientes al instante. Vos te enfocás en preparar pedidos y hacer crecer tu negocio.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ PRICING ═══════════════ -->
+<section class="pricing" id="precios">
+  <div class="container">
+    <div class="section-label reveal">Precios</div>
+    <h2 class="reveal">Simple y <em>transparente</em></h2>
+    <p class="pricing-subtitle reveal">Sin sorpresas. Cancelá cuando quieras.</p>
+    <div class="pricing-grid">
+      <div class="price-card reveal">
+        <h3>Básico</h3>
+        <p class="price-desc">Para negocios que arrancan</p>
+        <div class="price-amount">$29 <span>USD</span></div>
+        <p class="price-period">por mes</p>
+        <ul class="price-features">
+          <li>Catálogo manual (hasta 50 productos)</li>
+          <li>Texto, audios, imágenes</li>
+          <li>Historial de conversaciones</li>
+          <li>Respuestas naturales con IA</li>
+          <li>Soporte por WhatsApp</li>
+        </ul>
+        <span class="price-btn outline" style="opacity:0.5;cursor:default">Próximamente</span>
+      </div>
+      <div class="price-card featured reveal">
+        <div class="price-badge">POPULAR</div>
+        <h3>Pro</h3>
+        <p class="price-desc">Para negocios que venden en serio</p>
+        <div class="price-amount">$79 <span>USD</span></div>
+        <p class="price-period">por mes</p>
+        <ul class="price-features">
+          <li>Todo lo del plan Básico</li>
+          <li>Integración con Shopify / WooCommerce</li>
+          <li>Stock y precios en tiempo real</li>
+          <li>Links de pago automáticos</li>
+          <li>Estado de pedidos y envíos</li>
+          <li>Panel de métricas</li>
+        </ul>
+        <span class="price-btn filled" style="opacity:0.5;cursor:default">Próximamente</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ DEMO INTERACTIVA ═══════════════ -->
+<section class="demo" id="demo">
+  <div class="container">
+    <div class="section-label reveal">Probala vos mismo</div>
+    <h2 class="reveal" style="font-family:var(--serif);font-size:clamp(36px,4vw,56px);line-height:1.15;letter-spacing:-1.5px;text-align:center;margin-bottom:16px">Hablá con <em style="font-style:italic;color:var(--green)">Lola</em> ahora</h2>
+    <p class="reveal" style="text-align:center;color:var(--text-dim);font-size:16px;margin-bottom:48px">Escribile lo que quieras. Es la misma IA que atendería a tus clientes.</p>
+    <div class="demo-phone reveal">
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="wa-header">
+            <div class="wa-avatar">L</div>
+            <div>
+              <div class="wa-name">Lola</div>
+              <div class="wa-status" id="demoStatus">en linea</div>
+            </div>
+          </div>
+          <div class="wa-chat" id="demoChat" style="overflow-y:auto">
+            <div class="wa-typing" id="demoTyping"><span></span><span></span><span></span></div>
+          </div>
+          <form class="wa-input" id="demoForm" autocomplete="off">
+            <input type="text" class="wa-input-field" id="demoInput" placeholder="Escribile a Lola..." autocomplete="off">
+            <button type="submit" class="wa-input-send" title="Enviar">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="#0b141a"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ FOOTER ═══════════════ -->
+<footer>
+  <div class="container">
+    <div class="footer-logo">l<span>o</span>la</div>
+    <ul class="footer-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#como-funciona">Cómo funciona</a></li>
+      <li><a href="#precios">Precios</a></li>
+    </ul>
+    <div class="footer-copy">© 2026 Lola. Hecho en Uruguay.</div>
+  </div>
+</footer>
+
+<script>
+// Nav scroll effect
+const nav = document.querySelector('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 20);
+});
+
+// Reveal on scroll
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((entry, i) => {
+    if (entry.isIntersecting) {
+      setTimeout(() => entry.target.classList.add('visible'), i * 80);
+      observer.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// WhatsApp chat animation
+function animateChat() {
+  const msgs = document.querySelectorAll('.wa-msg');
+  const typing = document.getElementById('waTyping');
+  const status = document.querySelector('.wa-status');
+  let i = 0;
+
+  function showNext() {
+    if (i >= msgs.length) {
+      status.textContent = 'en linea';
+      setTimeout(() => {
+        msgs.forEach(m => m.classList.remove('visible'));
+        typing.classList.remove('visible');
+        i = 0;
+        setTimeout(showNext, 500);
+      }, 4000);
+      return;
+    }
+
+    const msg = msgs[i];
+    const isReceived = msg.classList.contains('received');
+
+    if (isReceived) {
+      // Mover typing al final y mostrar
+      waChat.appendChild(typing);
+      typing.classList.add('visible');
+      status.textContent = 'escribiendo...';
+      waChat.scrollTop = waChat.scrollHeight;
+      setTimeout(() => {
+        typing.classList.remove('visible');
+        // Mover el mensaje antes del typing
+        waChat.insertBefore(msg, typing);
+        msg.classList.add('visible');
+        status.textContent = 'en linea';
+        waChat.scrollTop = waChat.scrollHeight;
+        i++;
+        setTimeout(showNext, 1200);
+      }, 1200);
+    } else {
+      waChat.insertBefore(msg, typing);
+      msg.classList.add('visible');
+      waChat.scrollTop = waChat.scrollHeight;
+      i++;
+      setTimeout(showNext, 800);
+    }
+  }
+
+  setTimeout(showNext, 800);
+}
+
+const heroObserver = new IntersectionObserver((entries) => {
+  if (entries[0].isIntersecting) {
+    animateChat();
+    heroObserver.disconnect();
+  }
+}, { threshold: 0.3 });
+
+heroObserver.observe(document.querySelector('.hero-phone'));
+
+// ═══════════════ DEMO INTERACTIVA ═══════════════
+const demoChat = document.getElementById('demoChat');
+const demoInput = document.getElementById('demoInput');
+const demoForm = document.getElementById('demoForm');
+const demoTyping = document.getElementById('demoTyping');
+const demoStatus = document.getElementById('demoStatus');
+const demoSessionId = 'demo-' + Math.random().toString(36).substr(2, 9);
+let demoSending = false;
+
+function demoTime() {
+  const d = new Date();
+  return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+}
+
+function demoAddMsg(text, type) {
+  const div = document.createElement('div');
+  div.className = 'wa-msg ' + type;
+  div.innerHTML = text + ' <span class="time">' + demoTime() + '</span>';
+  demoChat.insertBefore(div, demoTyping);
+  requestAnimationFrame(() => div.classList.add('visible'));
+  demoChat.scrollTop = demoChat.scrollHeight;
+}
+
+demoForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = demoInput.value.trim();
+  if (!text || demoSending) return;
+
+  demoSending = true;
+  demoInput.value = '';
+  demoAddMsg(text, 'sent');
+
+  demoTyping.classList.add('visible');
+  demoStatus.textContent = 'escribiendo...';
+  demoChat.scrollTop = demoChat.scrollHeight;
+
+  try {
+    const resp = await fetch('/api/lola-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, session_id: demoSessionId }),
+    });
+    const data = await resp.json();
+    demoTyping.classList.remove('visible');
+    demoStatus.textContent = 'en linea';
+    if (data.text) {
+      const chunks = data.text.split('\n').map(c => c.trim()).filter(c => c);
+      for (let j = 0; j < chunks.length; j++) {
+        if (j > 0) {
+          demoTyping.classList.add('visible');
+          demoStatus.textContent = 'escribiendo...';
+          demoChat.scrollTop = demoChat.scrollHeight;
+          await new Promise(r => setTimeout(r, 800));
+          demoTyping.classList.remove('visible');
+          demoStatus.textContent = 'en linea';
+        }
+        demoAddMsg(chunks[j], 'received');
+      }
+    } else {
+      demoAddMsg('Uy, tuve un problema. Proba de nuevo.', 'received');
+    }
+  } catch (err) {
+    demoTyping.classList.remove('visible');
+    demoStatus.textContent = 'en linea';
+    demoAddMsg('No me pude conectar, proba de nuevo.', 'received');
+  }
+  demoSending = false;
+  demoInput.focus();
+});
+
+// Saludo inicial de Lola en el demo
+setTimeout(() => {
+  demoTyping.classList.add('visible');
+  demoStatus.textContent = 'escribiendo...';
+  setTimeout(() => {
+    demoTyping.classList.remove('visible');
+    demoStatus.textContent = 'en linea';
+    demoAddMsg('Hola! soy Lola. si tenes un negocio y queres saber como puedo ayudarte a vender, preguntame lo que quieras', 'received');
+  }, 1500);
+}, 1000);
+</script>
+</body>
+</html>
