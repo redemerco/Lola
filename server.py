@@ -16,6 +16,7 @@ import base64
 import hashlib
 import hmac
 import re
+import sqlite3
 import subprocess
 import threading
 import time
@@ -24,6 +25,8 @@ import urllib.error
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
+from cryptography.fernet import Fernet
+
 # Importar el router
 sys.path.insert(0, os.path.expanduser("~"))
 from importlib import import_module
@@ -31,6 +34,281 @@ gemini_router = import_module("gemini-router")
 GeminiRouter = gemini_router.GeminiRouter
 
 router = GeminiRouter()
+
+# ═══════════════ SQLITE + ENCRYPTION ═══════════════
+
+_DB_PATH = os.path.expanduser("~/.lola-db.sqlite")
+_MASTER_KEY_PATH = os.path.expanduser("~/.lola-master.key")
+_db_lock = threading.Lock()
+
+
+def _load_or_create_master_key():
+    """Carga la master key de LOLA_ENCRYPTION_KEY env var o ~/.lola-master.key.
+    Si no existe ninguna, genera una nueva y la guarda."""
+    env_key = os.environ.get("LOLA_ENCRYPTION_KEY", "").strip()
+    if env_key:
+        # Asegurar que es una Fernet key válida (44 bytes base64)
+        try:
+            Fernet(env_key.encode())
+            return env_key.encode()
+        except Exception:
+            print("[DB] LOLA_ENCRYPTION_KEY inválida, ignorando")
+
+    # Intentar cargar de archivo
+    if os.path.exists(_MASTER_KEY_PATH):
+        with open(_MASTER_KEY_PATH, "rb") as f:
+            key = f.read().strip()
+        try:
+            Fernet(key)
+            print(f"[DB] Master key cargada desde {_MASTER_KEY_PATH}")
+            return key
+        except Exception:
+            print(f"[DB] Master key corrupta en {_MASTER_KEY_PATH}, generando nueva")
+
+    # Generar nueva
+    key = Fernet.generate_key()
+    with open(_MASTER_KEY_PATH, "wb") as f:
+        f.write(key)
+    os.chmod(_MASTER_KEY_PATH, 0o600)
+    print(f"[DB] Master key generada y guardada en {_MASTER_KEY_PATH}")
+    print(f"[DB] IMPORTANTE: Hacé backup de este archivo. Sin él no se pueden leer los datos encriptados.")
+    return key
+
+
+_fernet = Fernet(_load_or_create_master_key())
+
+
+def _encrypt(plaintext):
+    """Encripta texto con Fernet (AES-128-CBC + HMAC). Retorna str base64."""
+    if not plaintext:
+        return ""
+    return _fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt(ciphertext):
+    """Desencripta texto Fernet. Retorna str."""
+    if not ciphertext:
+        return ""
+    return _fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+
+
+def _db_conn():
+    """Crea una conexión a SQLite con WAL mode."""
+    conn = sqlite3.connect(_DB_PATH, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _hash_key(value):
+    """Hash determinístico para usar como clave de búsqueda (no reversible)."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _db_init():
+    """Crea la DB y tablas si no existen."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS tenants (
+                    phone_hash TEXT PRIMARY KEY,
+                    phone TEXT,
+                    email TEXT,
+                    plan TEXT,
+                    business_data TEXT,
+                    system_prompt TEXT,
+                    created TEXT,
+                    updated TEXT
+                );
+                CREATE TABLE IF NOT EXISTS subscribers (
+                    email_hash TEXT PRIMARY KEY,
+                    email TEXT,
+                    plan TEXT,
+                    status TEXT,
+                    mp_id TEXT,
+                    phone TEXT,
+                    updated TEXT
+                );
+            """)
+            conn.commit()
+            print(f"[DB] Inicializada: {_DB_PATH}")
+        finally:
+            conn.close()
+
+
+def _db_tenant_load(phone):
+    """Carga un tenant desde SQLite. Retorna dict o None."""
+    ph = _hash_key(phone)
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            row = conn.execute("SELECT * FROM tenants WHERE phone_hash = ?", (ph,)).fetchone()
+            if not row:
+                return None
+            return {
+                "phone": _decrypt(row["phone"]) if row["phone"] else phone,
+                "email": _decrypt(row["email"]) if row["email"] else "",
+                "plan": row["plan"] or "",
+                "data": json.loads(_decrypt(row["business_data"])) if row["business_data"] else {},
+                "system_prompt": _decrypt(row["system_prompt"]) if row["system_prompt"] else "",
+                "created": row["created"] or "",
+                "updated": row["updated"] or "",
+            }
+        except Exception as e:
+            print(f"[DB] Error cargando tenant {phone}: {e}")
+            return None
+        finally:
+            conn.close()
+
+
+def _db_tenant_save(phone, data):
+    """Guarda un tenant en SQLite con campos sensibles encriptados."""
+    ph = _hash_key(phone)
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            business_data = data.get("data", {})
+            conn.execute("""
+                INSERT OR REPLACE INTO tenants (phone_hash, phone, email, plan, business_data, system_prompt, created, updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                ph,
+                _encrypt(phone),
+                _encrypt(data.get("email", "")),
+                data.get("plan", ""),
+                _encrypt(json.dumps(business_data, ensure_ascii=False)) if business_data else "",
+                _encrypt(data.get("system_prompt", "")),
+                data.get("created", time.strftime("%Y-%m-%d %H:%M")),
+                time.strftime("%Y-%m-%d %H:%M"),
+            ))
+            conn.commit()
+            print(f"[DB] Tenant guardado: {phone}")
+        except Exception as e:
+            print(f"[DB] Error guardando tenant {phone}: {e}")
+        finally:
+            conn.close()
+
+
+def _db_subscribers_load():
+    """Carga todos los subscribers desde SQLite. Retorna dict {email: info}."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            rows = conn.execute("SELECT * FROM subscribers").fetchall()
+            subs = {}
+            for row in rows:
+                email = _decrypt(row["email"]) if row["email"] else ""
+                if not email:
+                    continue
+                subs[email] = {
+                    "plan": row["plan"] or "",
+                    "status": row["status"] or "",
+                    "mp_id": _decrypt(row["mp_id"]) if row["mp_id"] else "",
+                    "phone": _decrypt(row["phone"]) if row["phone"] else "",
+                    "updated": row["updated"] or "",
+                }
+            return subs
+        except Exception as e:
+            print(f"[DB] Error cargando subscribers: {e}")
+            return {}
+        finally:
+            conn.close()
+
+
+def _db_subscribers_save(subs):
+    """Guarda todos los subscribers (reemplaza la tabla completa)."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            conn.execute("DELETE FROM subscribers")
+            for email, info in subs.items():
+                eh = _hash_key(email)
+                conn.execute("""
+                    INSERT INTO subscribers (email_hash, email, plan, status, mp_id, phone, updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    eh,
+                    _encrypt(email),
+                    info.get("plan", ""),
+                    info.get("status", ""),
+                    _encrypt(info.get("mp_id", "")),
+                    _encrypt(info.get("phone", "")),
+                    info.get("updated", ""),
+                ))
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Error guardando subscribers: {e}")
+        finally:
+            conn.close()
+
+
+def _db_subscriber_upsert(email, info):
+    """Inserta o actualiza un subscriber individual."""
+    eh = _hash_key(email)
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            conn.execute("""
+                INSERT OR REPLACE INTO subscribers (email_hash, email, plan, status, mp_id, phone, updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                eh,
+                _encrypt(email),
+                info.get("plan", ""),
+                info.get("status", ""),
+                _encrypt(info.get("mp_id", "")),
+                _encrypt(info.get("phone", "")),
+                info.get("updated", ""),
+            ))
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Error upserting subscriber {email}: {e}")
+        finally:
+            conn.close()
+
+
+def _db_migrate_from_json():
+    """Migra datos desde archivos JSON viejos a SQLite. Renombra originales a .bak."""
+    tenants_dir = os.path.expanduser("~/.lola-tenants")
+    subscribers_path = os.path.expanduser("~/.lola-subscribers.json")
+    migrated_tenants = 0
+    migrated_subs = 0
+
+    # Migrar tenants
+    if os.path.isdir(tenants_dir):
+        json_files = [f for f in os.listdir(tenants_dir) if f.endswith(".json")]
+        for fname in json_files:
+            fpath = os.path.join(tenants_dir, fname)
+            try:
+                with open(fpath) as f:
+                    data = json.load(f)
+                phone = data.get("phone", fname.replace(".json", ""))
+                _db_tenant_save(phone, data)
+                os.rename(fpath, fpath + ".bak")
+                migrated_tenants += 1
+            except Exception as e:
+                print(f"[DB] Error migrando tenant {fname}: {e}")
+
+    # Migrar subscribers
+    if os.path.isfile(subscribers_path):
+        try:
+            with open(subscribers_path) as f:
+                subs = json.load(f)
+            if subs:
+                _db_subscribers_save(subs)
+                migrated_subs = len(subs)
+            os.rename(subscribers_path, subscribers_path + ".bak")
+        except Exception as e:
+            print(f"[DB] Error migrando subscribers: {e}")
+
+    if migrated_tenants or migrated_subs:
+        print(f"[DB] Migrados {migrated_tenants} tenants y {migrated_subs} subscribers desde JSON")
+
+
+# Inicializar DB al arrancar
+_db_init()
+_db_migrate_from_json()
 
 # WhatsApp Business API config
 _wa_config_path = os.path.expanduser("~/.whatsapp-config.json")
@@ -57,9 +335,7 @@ _OTP_MAX_SENDS_PER_HOUR = 3
 _auth_sessions = {}
 _AUTH_SESSION_TTL = 7200      # 2 horas
 
-# Tenants (datos de cada comerciante)
-_tenants_dir = os.path.expanduser("~/.lola-tenants")
-os.makedirs(_tenants_dir, exist_ok=True)
+# Tenants (datos de cada comerciante) — ahora en SQLite via _db_tenant_load/_db_tenant_save
 
 
 def _normalize_phone(phone):
@@ -75,21 +351,13 @@ def _normalize_phone(phone):
 
 
 def _tenant_load(phone):
-    """Carga datos de un tenant desde disco. Retorna dict o None."""
-    path = os.path.join(_tenants_dir, f"{phone}.json")
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
+    """Carga datos de un tenant. Wrapper → SQLite."""
+    return _db_tenant_load(phone)
 
 
 def _tenant_save(phone, data):
-    """Guarda datos de un tenant a disco."""
-    path = os.path.join(_tenants_dir, f"{phone}.json")
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    print(f"[Tenant] Guardado: {path}")
+    """Guarda datos de un tenant. Wrapper → SQLite."""
+    _db_tenant_save(phone, data)
 
 
 def _cleanup_otp_and_sessions():
@@ -112,7 +380,6 @@ def _cleanup_otp_and_sessions():
 
 # MercadoPago config
 _mp_config_path = os.path.expanduser("~/.mercadopago-config.json")
-_mp_subscribers_path = os.path.expanduser("~/.lola-subscribers.json")
 try:
     with open(_mp_config_path) as f:
         MP_CONFIG = json.load(f)
@@ -133,18 +400,13 @@ def _mp_save_config():
 
 
 def _mp_load_subscribers():
-    """Carga suscriptores desde disco."""
-    try:
-        with open(_mp_subscribers_path) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    """Carga suscriptores. Wrapper → SQLite."""
+    return _db_subscribers_load()
 
 
 def _mp_save_subscribers(subs):
-    """Guarda suscriptores a disco."""
-    with open(_mp_subscribers_path, "w") as f:
-        json.dump(subs, f, indent=2, ensure_ascii=False)
+    """Guarda suscriptores. Wrapper → SQLite."""
+    _db_subscribers_save(subs)
 
 
 def _mp_api(method, path, data=None):
@@ -1678,15 +1940,13 @@ class RenzoHandler(SimpleHTTPRequestHandler):
                     plan_name = name
                     break
 
-            subs = _mp_load_subscribers()
-            subs[email] = {
+            _db_subscriber_upsert(email, {
                 "plan": plan_name,
                 "status": status,
                 "mp_id": data_id,
                 "phone": phone,
                 "updated": time.strftime("%Y-%m-%d %H:%M"),
-            }
-            _mp_save_subscribers(subs)
+            })
             print(f"[MercadoPago] Suscriptor actualizado: {email} → {plan_name}/{status}")
 
         except Exception as e:
