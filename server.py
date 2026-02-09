@@ -77,6 +77,39 @@ def _load_or_create_master_key():
 
 _fernet = Fernet(_load_or_create_master_key())
 
+_SERVER_START = time.time()
+
+
+# ═══════════════ ADMIN AUTH TOKEN ═══════════════
+
+_ADMIN_TOKEN_PATH = os.path.expanduser("~/.lola-admin-token")
+
+
+def _load_or_create_admin_token():
+    """Carga el admin token de LOLA_ADMIN_TOKEN env var o ~/.lola-admin-token.
+    Si no existe ninguno, genera uno y lo guarda."""
+    env_token = os.environ.get("LOLA_ADMIN_TOKEN", "").strip()
+    if env_token:
+        return env_token
+
+    if os.path.exists(_ADMIN_TOKEN_PATH):
+        with open(_ADMIN_TOKEN_PATH) as f:
+            token = f.read().strip()
+        if token:
+            return token
+
+    # Generar nuevo token
+    token = os.urandom(24).hex()
+    with open(_ADMIN_TOKEN_PATH, "w") as f:
+        f.write(token)
+    os.chmod(_ADMIN_TOKEN_PATH, 0o600)
+    print(f"[Auth] Admin token generado y guardado en {_ADMIN_TOKEN_PATH}")
+    return token
+
+
+_ADMIN_TOKEN = _load_or_create_admin_token()
+print(f"[Auth] Admin token: {_ADMIN_TOKEN[:4]}{'*' * (len(_ADMIN_TOKEN) - 4)}")
+
 
 def _encrypt(plaintext):
     """Encripta texto con Fernet (AES-128-CBC + HMAC). Retorna str base64."""
@@ -90,6 +123,15 @@ def _decrypt(ciphertext):
     if not ciphertext:
         return ""
     return _fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+
+
+def _require_admin(handler):
+    """Verifica Authorization: Bearer <token>. Retorna True si OK, False si mandó 401."""
+    auth = handler.headers.get("Authorization", "")
+    if auth == f"Bearer {_ADMIN_TOKEN}":
+        return True
+    handler._json_response({"error": "No autorizado"}, 401)
+    return False
 
 
 def _db_conn():
@@ -128,6 +170,16 @@ def _db_init():
                     status TEXT,
                     mp_id TEXT,
                     phone TEXT,
+                    updated TEXT
+                );
+                CREATE TABLE IF NOT EXISTS wa_numbers (
+                    phone_number_id TEXT PRIMARY KEY,
+                    tenant_phone_hash TEXT,
+                    access_token TEXT,
+                    business_account_id TEXT,
+                    label TEXT,
+                    status TEXT DEFAULT 'active',
+                    created TEXT,
                     updated TEXT
                 );
             """)
@@ -268,6 +320,132 @@ def _db_subscriber_upsert(email, info):
             conn.close()
 
 
+def _db_wa_number_load(phone_number_id):
+    """Carga un wa_number desde SQLite. Retorna dict o None."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            row = conn.execute("SELECT * FROM wa_numbers WHERE phone_number_id = ? AND status = 'active'",
+                               (phone_number_id,)).fetchone()
+            if not row:
+                return None
+            return {
+                "phone_number_id": row["phone_number_id"],
+                "tenant_phone_hash": row["tenant_phone_hash"] or "",
+                "access_token": _decrypt(row["access_token"]) if row["access_token"] else "",
+                "business_account_id": row["business_account_id"] or "",
+                "label": row["label"] or "",
+                "status": row["status"] or "active",
+            }
+        except Exception as e:
+            print(f"[DB] Error cargando wa_number {phone_number_id}: {e}")
+            return None
+        finally:
+            conn.close()
+
+
+def _db_wa_number_save(phone_number_id, data):
+    """Guarda un wa_number en SQLite con access_token encriptado."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            conn.execute("""
+                INSERT OR REPLACE INTO wa_numbers
+                (phone_number_id, tenant_phone_hash, access_token, business_account_id, label, status, created, updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                phone_number_id,
+                data.get("tenant_phone_hash", ""),
+                _encrypt(data.get("access_token", "")),
+                data.get("business_account_id", ""),
+                data.get("label", ""),
+                data.get("status", "active"),
+                data.get("created", time.strftime("%Y-%m-%d %H:%M")),
+                time.strftime("%Y-%m-%d %H:%M"),
+            ))
+            conn.commit()
+            print(f"[DB] wa_number guardado: {phone_number_id} ({data.get('label', '')})")
+        except Exception as e:
+            print(f"[DB] Error guardando wa_number {phone_number_id}: {e}")
+        finally:
+            conn.close()
+
+
+def _db_wa_numbers_list():
+    """Lista todos los wa_numbers. Retorna lista de dicts (sin access_token desencriptado)."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            rows = conn.execute("SELECT * FROM wa_numbers ORDER BY created").fetchall()
+            result = []
+            for row in rows:
+                result.append({
+                    "phone_number_id": row["phone_number_id"],
+                    "tenant_phone_hash": row["tenant_phone_hash"] or "",
+                    "business_account_id": row["business_account_id"] or "",
+                    "label": row["label"] or "",
+                    "status": row["status"] or "active",
+                    "created": row["created"] or "",
+                    "updated": row["updated"] or "",
+                })
+            return result
+        except Exception as e:
+            print(f"[DB] Error listando wa_numbers: {e}")
+            return []
+        finally:
+            conn.close()
+
+
+def _db_wa_numbers_count():
+    """Retorna la cantidad de wa_numbers activos en la DB."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM wa_numbers WHERE status = 'active'").fetchone()
+            return row[0] if row else 0
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
+
+def _db_tenant_load_by_hash(phone_hash):
+    """Carga un tenant por su phone_hash (sin saber el phone original)."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            row = conn.execute("SELECT * FROM tenants WHERE phone_hash = ?", (phone_hash,)).fetchone()
+            if not row:
+                return None
+            return {
+                "phone": _decrypt(row["phone"]) if row["phone"] else "",
+                "email": _decrypt(row["email"]) if row["email"] else "",
+                "plan": row["plan"] or "",
+                "data": json.loads(_decrypt(row["business_data"])) if row["business_data"] else {},
+                "system_prompt": _decrypt(row["system_prompt"]) if row["system_prompt"] else "",
+                "created": row["created"] or "",
+                "updated": row["updated"] or "",
+            }
+        except Exception as e:
+            print(f"[DB] Error cargando tenant by hash {phone_hash}: {e}")
+            return None
+        finally:
+            conn.close()
+
+
+def _db_tenants_count():
+    """Retorna la cantidad de tenants en la DB."""
+    with _db_lock:
+        conn = _db_conn()
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM tenants").fetchone()
+            return row[0] if row else 0
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
+
 def _db_migrate_from_json():
     """Migra datos desde archivos JSON viejos a SQLite. Renombra originales a .bak."""
     tenants_dir = os.path.expanduser("~/.lola-tenants")
@@ -325,6 +503,11 @@ STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 # ═══════════════ OTP / AUTH / TENANTS ═══════════════
 
 # OTP pendientes: phone → {code, created, attempts}
+# Rate limit por IP para /api/lola-chat
+_ip_rate = {}  # ip → [timestamps]
+_IP_RATE_MAX = 20       # máx requests por hora
+_IP_RATE_WINDOW = 3600  # 1 hora
+
 _otp_pending = {}
 _OTP_EXPIRE_SECS = 300       # 5 min
 _OTP_MAX_ATTEMPTS = 3
@@ -813,11 +996,13 @@ def _process_onboarding_complete(session, messages):
         return False
 
 
-def _send_whatsapp(to, text):
+def _send_whatsapp(to, text, wa_ctx=None):
     """Envía un mensaje de texto via WhatsApp Graph API."""
-    if not WA_CONFIG:
+    phone_number_id = (wa_ctx or {}).get("phone_number_id") or (WA_CONFIG or {}).get("phone_number_id")
+    access_token = (wa_ctx or {}).get("access_token") or (WA_CONFIG or {}).get("access_token")
+    if not phone_number_id or not access_token:
         return
-    url = f"https://graph.facebook.com/v23.0/{WA_CONFIG['phone_number_id']}/messages"
+    url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
     payload = json.dumps({
         "messaging_product": "whatsapp",
         "to": to,
@@ -826,7 +1011,7 @@ def _send_whatsapp(to, text):
     }).encode("utf-8")
     req = urllib.request.Request(url, data=payload, method="POST")
     req.add_header("Content-Type", "application/json")
-    req.add_header("Authorization", f"Bearer {WA_CONFIG['access_token']}")
+    req.add_header("Authorization", f"Bearer {access_token}")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             resp_body = json.loads(resp.read())
@@ -867,7 +1052,7 @@ _wa_pending_lock = threading.Lock()
 _WA_DEBOUNCE_SECS = 5  # esperar 5s después del primer mensaje
 
 
-def _wa_queue_message(from_number, msg_id, msg_data):
+def _wa_queue_message(from_number, msg_id, msg_data, wa_ctx=None):
     """Encola un mensaje y agenda el procesamiento en 5s.
     msg_data: dict con "type" y datos según tipo (text, media, location)."""
     with _wa_pending_lock:
@@ -880,10 +1065,11 @@ def _wa_queue_message(from_number, msg_id, msg_data):
         _wa_pending[from_number] = {
             "msgs": [msg_data],
             "first_msg_id": msg_id,
+            "wa_ctx": wa_ctx,
         }
     # Typing indicator con el primer msg_id (fuera del lock)
     if msg_id:
-        _wa_typing(from_number, msg_id)
+        _wa_typing(from_number, msg_id, wa_ctx)
     timer = threading.Timer(_WA_DEBOUNCE_SECS, _wa_flush, args=(from_number,))
     timer.daemon = True
     with _wa_pending_lock:
@@ -901,6 +1087,7 @@ def _wa_flush(from_number):
         return
     msgs = pending["msgs"]
     first_msg_id = pending.get("first_msg_id", "")
+    wa_ctx = pending.get("wa_ctx")
     # Separar textos y media
     texts = []
     media_item = None  # solo el último media (audio/imagen)
@@ -918,9 +1105,10 @@ def _wa_flush(from_number):
         _handle_wa_media(
             from_number, media_item["media_id"], first_msg_id,
             media_item["type"], media_item.get("caption", "") or combined_text,
+            wa_ctx=wa_ctx,
         )
     else:
-        _handle_wa_message(from_number, combined_text, first_msg_id)
+        _handle_wa_message(from_number, combined_text, first_msg_id, wa_ctx=wa_ctx)
 
 
 # Historial para chat web de Lola (por session_id)
@@ -950,11 +1138,11 @@ def _wa_append(number, role, text):
         entry["messages"].pop(0)
 
 
-def _wa_download_media(media_id):
+def _wa_download_media(media_id, wa_ctx=None):
     """Descarga un archivo multimedia de WhatsApp. Retorna (bytes, mime_type) o (None, None)."""
-    if not WA_CONFIG:
+    token = (wa_ctx or {}).get("access_token") or (WA_CONFIG or {}).get("access_token")
+    if not token:
         return None, None
-    token = WA_CONFIG["access_token"]
     # Paso 1: obtener la URL del media
     url = f"https://graph.facebook.com/v23.0/{media_id}"
     req = urllib.request.Request(url)
@@ -976,11 +1164,13 @@ def _wa_download_media(media_id):
         return None, None
 
 
-def _wa_typing(to, msg_id=""):
+def _wa_typing(to, msg_id="", wa_ctx=None):
     """Muestra 'escribiendo...' y marca el mensaje como leído."""
-    if not WA_CONFIG or not msg_id:
+    phone_number_id = (wa_ctx or {}).get("phone_number_id") or (WA_CONFIG or {}).get("phone_number_id")
+    access_token = (wa_ctx or {}).get("access_token") or (WA_CONFIG or {}).get("access_token")
+    if not phone_number_id or not access_token or not msg_id:
         return
-    url = f"https://graph.facebook.com/v23.0/{WA_CONFIG['phone_number_id']}/messages"
+    url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
     data = {
         "messaging_product": "whatsapp",
         "status": "read",
@@ -990,7 +1180,7 @@ def _wa_typing(to, msg_id=""):
     payload = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(url, data=payload, method="POST")
     req.add_header("Content-Type", "application/json")
-    req.add_header("Authorization", f"Bearer {WA_CONFIG['access_token']}")
+    req.add_header("Authorization", f"Bearer {access_token}")
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             pass
@@ -1097,11 +1287,11 @@ def _split_reply(text):
     return merged if merged else [text]
 
 
-def _handle_wa_message(from_number, text, msg_id="", media_data=None, media_mime=None, media_label="audio"):
+def _handle_wa_message(from_number, text, msg_id="", media_data=None, media_mime=None, media_label="audio", wa_ctx=None):
     """Procesa un mensaje de WhatsApp y responde (en thread aparte)."""
     # Mostrar "escribiendo..." mientras Gemini procesa
     if msg_id:
-        _wa_typing(from_number, msg_id)
+        _wa_typing(from_number, msg_id, wa_ctx)
 
     # Armar historial multi-turn
     history = _wa_get_history(from_number)
@@ -1117,13 +1307,16 @@ def _handle_wa_message(from_number, text, msg_id="", media_data=None, media_mime
     _wa_append(from_number, "user", text or f"[{media_label}]")
     messages = history + [user_msg]
 
+    # Determinar system prompt: del tenant (wa_ctx) o default de Lola ventas
+    system_prompt = (wa_ctx or {}).get("system_prompt") or WA_SYSTEM_PROMPT
+
     try:
-        result = router.ask_chat(messages, system=WA_SYSTEM_PROMPT, timeout=30)
+        result = router.ask_chat(messages, system=system_prompt, timeout=30)
         if result["ok"]:
             reply = result["text"]
             if reply:
                 reply = reply[0].upper() + reply[1:]
-            # Procesar tags de cobro/pago antes de enviar
+            # Procesar tags de cobro/pago antes de enviar (solo para Lola sales o tenants con tags)
             if "{{" in reply:
                 reply = _process_lola_tags(reply, from_number)
             _wa_append(from_number, "model", reply)
@@ -1135,27 +1328,27 @@ def _handle_wa_message(from_number, text, msg_id="", media_data=None, media_mime
             chunks = _split_reply(reply)
             for i, chunk in enumerate(chunks):
                 if i > 0:
-                    _wa_typing(from_number, msg_id)
+                    _wa_typing(from_number, msg_id, wa_ctx)
                     time.sleep(0.8)
-                _send_whatsapp(from_number, chunk)
+                _send_whatsapp(from_number, chunk, wa_ctx)
         else:
-            _send_whatsapp(from_number, "Uh, tuve un error procesando tu mensaje. Probá de nuevo en un rato.")
+            _send_whatsapp(from_number, "Uh, tuve un error procesando tu mensaje. Probá de nuevo en un rato.", wa_ctx)
             print(f"[WhatsApp] Error de Gemini: {result.get('error')}")
     except Exception as e:
         print(f"[WhatsApp] Excepción procesando mensaje de {from_number}: {e}")
-        _send_whatsapp(from_number, "Se me rompió algo, probá de nuevo.")
+        _send_whatsapp(from_number, "Se me rompió algo, probá de nuevo.", wa_ctx)
 
 
-def _handle_wa_media(from_number, media_id, msg_id="", media_label="audio", caption=""):
+def _handle_wa_media(from_number, media_id, msg_id="", media_label="audio", caption="", wa_ctx=None):
     """Descarga media de WhatsApp y lo manda a Gemini en una sola request."""
     if msg_id:
-        _wa_typing(from_number, msg_id)
-    data, mime_type = _wa_download_media(media_id)
+        _wa_typing(from_number, msg_id, wa_ctx)
+    data, mime_type = _wa_download_media(media_id, wa_ctx)
     if not data:
-        _send_whatsapp(from_number, f"No pude recibir el {media_label}, me lo mandás de nuevo?")
+        _send_whatsapp(from_number, f"No pude recibir el {media_label}, me lo mandás de nuevo?", wa_ctx)
         return
     print(f"[WhatsApp] {media_label.capitalize()} descargado: {len(data)} bytes, {mime_type}")
-    _handle_wa_message(from_number, caption, msg_id="", media_data=data, media_mime=mime_type, media_label=media_label)
+    _handle_wa_message(from_number, caption, msg_id="", media_data=data, media_mime=mime_type, media_label=media_label, wa_ctx=wa_ctx)
 
 
 class RenzoHandler(SimpleHTTPRequestHandler):
@@ -1167,6 +1360,18 @@ class RenzoHandler(SimpleHTTPRequestHandler):
     def do_GET(self, *args, **kwargs):
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/health":
+            uptime = int(time.time() - _SERVER_START)
+            self._json_response({
+                "status": "ok",
+                "uptime_seconds": uptime,
+                "gemini_keys": len(router.keys),
+                "whatsapp": WA_CONFIG is not None,
+                "mercadopago": MP_CONFIG is not None,
+                "wa_numbers": _db_wa_numbers_count(),
+                "tenants": _db_tenants_count(),
+            })
+            return
         if path == "/api/status":
             self._json_response(router.status_json())
             return
@@ -1178,6 +1383,9 @@ class RenzoHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/mp/subscribers":
             self._handle_mp_get_subscribers()
+            return
+        if path == "/api/admin/wa-numbers":
+            self._handle_admin_wa_numbers_get()
             return
         # lola.*/app → onboarding, lola.*/ → landing
         host = self.headers.get("Host", "")
@@ -1215,6 +1423,8 @@ class RenzoHandler(SimpleHTTPRequestHandler):
             self._handle_mp_cancel()
         elif path == "/mp-webhook":
             self._handle_mp_webhook()
+        elif path == "/api/admin/wa-numbers":
+            self._handle_admin_wa_numbers_post()
         else:
             self.send_error(404)
 
@@ -1239,7 +1449,7 @@ class RenzoHandler(SimpleHTTPRequestHandler):
             self.send_error(403, "Verificación fallida")
 
     def _handle_webhook_incoming(self):
-        """POST /webhook - Recibir mensajes de WhatsApp."""
+        """POST /webhook - Recibir mensajes de WhatsApp (multi-tenant)."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
@@ -1250,13 +1460,39 @@ class RenzoHandler(SimpleHTTPRequestHandler):
         # Responder 200 inmediatamente para no timeout con Meta
         self._json_response({"status": "ok"})
 
-        if not WA_CONFIG:
-            return
-
         # Extraer mensajes de la estructura de Meta
         for entry in body.get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
+
+                # Identificar a qué tenant va este mensaje
+                phone_number_id = value.get("metadata", {}).get("phone_number_id", "")
+
+                # Buscar config del tenant en wa_numbers
+                wa_number = _db_wa_number_load(phone_number_id) if phone_number_id else None
+                if wa_number:
+                    tenant = _db_tenant_load_by_hash(wa_number["tenant_phone_hash"])
+                    wa_ctx = {
+                        "phone_number_id": phone_number_id,
+                        "access_token": wa_number["access_token"],
+                        "system_prompt": tenant["system_prompt"] if tenant and tenant.get("system_prompt") else LOLA_SALES_PROMPT,
+                        "tenant_phone": tenant["phone"] if tenant else "",
+                        "is_lola_sales": False,
+                    }
+                elif WA_CONFIG and phone_number_id == WA_CONFIG.get("phone_number_id", ""):
+                    # Es el número de ventas de Lola
+                    wa_ctx = {
+                        "phone_number_id": WA_CONFIG["phone_number_id"],
+                        "access_token": WA_CONFIG["access_token"],
+                        "system_prompt": LOLA_SALES_PROMPT,
+                        "tenant_phone": "",
+                        "is_lola_sales": True,
+                    }
+                else:
+                    if phone_number_id:
+                        print(f"[WhatsApp] phone_number_id desconocido: {phone_number_id}")
+                    continue
+
                 messages = value.get("messages", [])
                 for msg in messages:
                     msg_type = msg.get("type", "")
@@ -1295,7 +1531,7 @@ class RenzoHandler(SimpleHTTPRequestHandler):
                             _wa_msg_texts[msg_id] = text[:500]
                         full_text = quote_prefix + text if quote_prefix else text
                         print(f"[WhatsApp] Mensaje de {from_number}: {text[:80]}")
-                        _wa_queue_message(from_number, msg_id, {"type": "text", "text": full_text})
+                        _wa_queue_message(from_number, msg_id, {"type": "text", "text": full_text}, wa_ctx)
                     elif msg_type in ("audio", "image"):
                         media_info = msg.get(msg_type, {})
                         media_id = media_info.get("id", "")
@@ -1305,7 +1541,7 @@ class RenzoHandler(SimpleHTTPRequestHandler):
                         print(f"[WhatsApp] {msg_type.capitalize()} de {from_number} (media_id: {media_id})")
                         _wa_queue_message(from_number, msg_id, {
                             "type": msg_type, "media_id": media_id, "caption": caption,
-                        })
+                        }, wa_ctx)
                     elif msg_type == "location":
                         loc = msg.get("location", {})
                         lat = loc.get("latitude", "")
@@ -1321,7 +1557,7 @@ class RenzoHandler(SimpleHTTPRequestHandler):
                         print(f"[WhatsApp] Ubicación de {from_number}: {loc_text}")
                         _wa_queue_message(from_number, msg_id, {
                             "type": "location", "text": f"(el usuario compartió su ubicación: {loc_text})",
-                        })
+                        }, wa_ctx)
 
     # ═══════════════ AUTH / OTP ═══════════════
 
@@ -1483,6 +1719,8 @@ class RenzoHandler(SimpleHTTPRequestHandler):
         })
 
     def _handle_chat(self):
+        if not _require_admin(self):
+            return
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
@@ -1569,8 +1807,34 @@ class RenzoHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._json_response({"error": str(e)}, 500)
 
+    def _get_client_ip(self):
+        """Obtiene la IP real del cliente (respeta X-Forwarded-For de Cloudflare)."""
+        return (self.headers.get("CF-Connecting-IP")
+                or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                or self.client_address[0])
+
+    def _check_ip_rate(self):
+        """Verifica rate limit por IP. Retorna True si OK, False si excedido (manda 429)."""
+        ip = self._get_client_ip()
+        now = time.time()
+        cutoff = now - _IP_RATE_WINDOW
+        hits = _ip_rate.get(ip, [])
+        hits = [t for t in hits if t > cutoff]
+        if len(hits) >= _IP_RATE_MAX:
+            _ip_rate[ip] = hits
+            self._json_response({"error": "Demasiadas solicitudes. Esperá un rato."}, 429)
+            return False
+        hits.append(now)
+        _ip_rate[ip] = hits
+        # Limpiar IPs viejas cada ~100 requests
+        if len(_ip_rate) > 200:
+            _ip_rate.clear()
+        return True
+
     def _handle_lola_chat(self):
         """Chat web de Lola — modo demo (ventas) o modo onboarding (autenticado)."""
+        if not self._check_ip_rate():
+            return
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
@@ -1670,6 +1934,8 @@ class RenzoHandler(SimpleHTTPRequestHandler):
 
     def _handle_execute(self):
         """Ejecuta un comando confirmado por el usuario."""
+        if not _require_admin(self):
+            return
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
@@ -1754,6 +2020,8 @@ class RenzoHandler(SimpleHTTPRequestHandler):
 
     def _handle_mp_setup_plans(self):
         """POST /api/mp/setup-plans — Crea los planes de suscripción en MP."""
+        if not _require_admin(self):
+            return
         if not MP_CONFIG:
             self._json_response({"error": "MercadoPago no configurado"}, 503)
             return
@@ -1807,6 +2075,8 @@ class RenzoHandler(SimpleHTTPRequestHandler):
 
     def _handle_mp_cancel(self):
         """POST /api/mp/cancel — Cancela una suscripción por email o mp_id."""
+        if not _require_admin(self):
+            return
         if not MP_CONFIG:
             self._json_response({"error": "MercadoPago no configurado"}, 503)
             return
@@ -1952,8 +2222,58 @@ class RenzoHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             print(f"[MercadoPago] Error procesando webhook: {e}")
 
+    def _handle_admin_wa_numbers_get(self):
+        """GET /api/admin/wa-numbers — Lista números de WhatsApp registrados."""
+        if not _require_admin(self):
+            return
+        numbers = _db_wa_numbers_list()
+        self._json_response({"wa_numbers": numbers})
+
+    def _handle_admin_wa_numbers_post(self):
+        """POST /api/admin/wa-numbers — Registra un número de WhatsApp para un tenant."""
+        if not _require_admin(self):
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+        except Exception:
+            self._json_response({"error": "JSON inválido"}, 400)
+            return
+
+        phone_number_id = body.get("phone_number_id", "").strip()
+        tenant_phone = body.get("tenant_phone", "").strip()
+        access_token = body.get("access_token", "").strip()
+        business_account_id = body.get("business_account_id", "").strip()
+        label = body.get("label", "").strip()
+
+        if not phone_number_id or not access_token:
+            self._json_response({"error": "Faltan phone_number_id y/o access_token"}, 400)
+            return
+
+        tenant_phone_hash = ""
+        if tenant_phone:
+            tenant_phone = _normalize_phone(tenant_phone)
+            tenant_phone_hash = _hash_key(tenant_phone)
+
+        _db_wa_number_save(phone_number_id, {
+            "tenant_phone_hash": tenant_phone_hash,
+            "access_token": access_token,
+            "business_account_id": business_account_id,
+            "label": label,
+            "status": "active",
+        })
+
+        self._json_response({
+            "ok": True,
+            "phone_number_id": phone_number_id,
+            "label": label,
+            "tenant_phone": tenant_phone,
+        })
+
     def _handle_mp_get_subscribers(self):
         """GET /api/mp/subscribers — Lista suscriptores (admin)."""
+        if not _require_admin(self):
+            return
         subs = _mp_load_subscribers()
         self._json_response(subs)
 
@@ -1976,7 +2296,7 @@ class RenzoHandler(SimpleHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
 
     def log_message(self, format, *args):
@@ -1990,7 +2310,8 @@ def main():
     server = HTTPServer(("0.0.0.0", port), RenzoHandler)
     print(f"🚀 RenzoGPT corriendo en http://0.0.0.0:{port}")
     print(f"   Router: {len(router.keys)} keys × {len(router.models)} modelos")
-    print(f"   WhatsApp: {'habilitado' if WA_CONFIG else 'deshabilitado'}")
+    wa_num_count = _db_wa_numbers_count()
+    print(f"   WhatsApp: {'habilitado' if WA_CONFIG else 'deshabilitado'} ({wa_num_count} números de tenants)")
     print(f"   MercadoPago: {'habilitado' if MP_CONFIG else 'deshabilitado'}")
     print(f"   Ctrl+C para frenar")
     try:
