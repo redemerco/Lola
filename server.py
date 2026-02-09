@@ -806,9 +806,14 @@ LOLA_SALES_PROMPT = (
     "- Si el cliente pregunta si ya está suscripto o si le llegó el pago de la suscripción, usá {{estado_suscripcion}} para chequear.\n"
     "- Ejemplo: \"dejame ver {{estado_suscripcion}}\"\n"
     "\n"
+    "CONFIGURACIÓN / ONBOARDING:\n"
+    "- El link de configuración se manda automáticamente cuando el cliente paga. No lo mandes vos.\n"
+    "- Si el cliente pregunta cómo configurar o dice que no le llegó el link, ahí sí mandále: https://lola.expensetracker.com.uy/app\n"
+    "- Decile que ahí ingresa su número de teléfono, le llega un código por WhatsApp, y en 5 minutos me configura.\n"
+    "\n"
     "REGLAS:\n"
     "- La meta es que el interesado quiera contratar Lola.\n"
-    "- Si preguntan algo técnico que no sabés, decí que el equipo técnico se los explica en el onboarding.\n"
+    "- Si preguntan algo técnico que no sabés, decí que se configura todo en el onboarding y es re sencillo.\n"
     "- Nunca inventes features que no existen.\n"
     "- Si piden contacto, deciles que pueden escribir a hola@lola.uy o agendar una demo.\n"
     "- Sos Lola. La mejor prueba de que funciona sos vos misma hablando con ellos ahora.\n"
@@ -2210,6 +2215,12 @@ class RenzoHandler(SimpleHTTPRequestHandler):
                     plan_name = name
                     break
 
+            # Si no vino phone de MP, buscar en subscribers existentes
+            if not phone and email:
+                existing = _db_subscribers_load()
+                ex = existing.get(email, {})
+                phone = ex.get("phone", "")
+
             _db_subscriber_upsert(email, {
                 "plan": plan_name,
                 "status": status,
@@ -2218,6 +2229,17 @@ class RenzoHandler(SimpleHTTPRequestHandler):
                 "updated": time.strftime("%Y-%m-%d %H:%M"),
             })
             print(f"[MercadoPago] Suscriptor actualizado: {email} → {plan_name}/{status}")
+
+            # Si es suscripción nueva (authorized), mandar WhatsApp con link de onboarding
+            if status == "authorized" and phone:
+                wa_phone = _normalize_phone(phone)
+                msg = (
+                    "ya quedo pronto tu plan " + plan_name + "!\n\n"
+                    "para configurar tu Lola entra aca: https://lola.expensetracker.com.uy/app\n\n"
+                    "pones tu numero, te llega un codigo por aca y en 5 minutos la tenes andando"
+                )
+                _send_whatsapp(wa_phone, msg)
+                print(f"[MercadoPago] WhatsApp de bienvenida enviado a {wa_phone}")
 
         except Exception as e:
             print(f"[MercadoPago] Error procesando webhook: {e}")
