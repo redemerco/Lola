@@ -809,7 +809,7 @@ LOLA_SALES_PROMPT = (
     "CONFIGURACIÓN / ONBOARDING:\n"
     "- El link de configuración se manda automáticamente cuando el cliente paga. No lo mandes vos.\n"
     "- Si el cliente pregunta cómo configurar o dice que no le llegó el link, ahí sí mandále: https://lola.expensetracker.com.uy/app\n"
-    "- Decile que ahí ingresa su número de teléfono, le llega un código por WhatsApp, y en 5 minutos me configura.\n"
+    "- Decile que ahí ingresa su número de teléfono, le llega un código por WhatsApp, completa los datos del negocio y después coordinamos la visita de un técnico para dejarlo andando.\n"
     "\n"
     "REGLAS:\n"
     "- La meta es que el interesado quiera contratar Lola.\n"
@@ -853,7 +853,8 @@ LOLA_ONBOARDING_PROMPT = (
     "Decile que con las categorías o rubros principales alcanza y que después se puede agregar más detalle. Seguí con la próxima pregunta.\n"
     "- Si algo no aplica (ej: no hace envíos), está bien, seguí con lo siguiente.\n"
     "- Cuando tengas TODO, hacé un resumen corto de lo que entendiste y pedí confirmación.\n"
-    "- Cuando el comerciante confirme que está todo bien, escribí EXACTAMENTE el tag {{onboarding_complete}} al final de tu mensaje.\n"
+    "- Cuando el comerciante confirme que está todo bien, decile que ya quedó la configuración y que ahora vamos a coordinar la visita de un técnico para conectar Lola a su WhatsApp Business y dejarlo todo andando.\n"
+    "- Escribí EXACTAMENTE el tag {{onboarding_complete}} al final de ese mensaje.\n"
     "- SOLO escribí {{onboarding_complete}} cuando el comerciante haya confirmado explícitamente.\n"
     "\n"
     "REGLAS:\n"
@@ -2236,7 +2237,7 @@ class RenzoHandler(SimpleHTTPRequestHandler):
                 msg = (
                     "ya quedo pronto tu plan " + plan_name + "!\n\n"
                     "para configurar tu Lola entra aca: https://lola.expensetracker.com.uy/app\n\n"
-                    "pones tu numero, te llega un codigo por aca y en 5 minutos la tenes andando"
+                    "pones tu numero, te llega un codigo por aca, completas los datos de tu negocio y despues coordinamos la visita de un tecnico para dejarlo todo andando"
                 )
                 _send_whatsapp(wa_phone, msg)
                 print(f"[MercadoPago] WhatsApp de bienvenida enviado a {wa_phone}")
