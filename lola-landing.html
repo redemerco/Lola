@@ -1012,7 +1012,7 @@ footer .container {
 <section class="hero">
   <div class="container">
     <div class="hero-content">
-      <div class="hero-badge">Disponible 24/7</div>
+      <div class="hero-badge">Disponible, no importa cuando leas esto</div>
       <h1>Tu vendedora<br>virtual en<br><em>WhatsApp</em></h1>
       <p class="hero-subtitle">Lola atiende a tus clientes, responde consultas, muestra productos y cierra ventas. Todo automático, todo por WhatsApp.</p>
       <div class="hero-actions">
@@ -1035,7 +1035,7 @@ footer .container {
             <div class="wa-msg sent">Hola, vi el anuncio. que hace lola exactamente? <span class="time">20:12</span></div>
             <div class="wa-msg received">Hola! lola se conecta a tu whatsapp y atiende a tus clientes por vos, las 24hs. responde consultas, muestra productos y cierra ventas sola <span class="time">20:12</span></div>
             <div class="wa-msg sent">y cuanto sale? <span class="time">20:13</span></div>
-            <div class="wa-msg received">El basico arranca en 29 usd/mes y tenes 7 dias gratis para probarlo con tu negocio <span class="time">20:13</span></div>
+            <div class="wa-msg received">El basico arranca en $1.290/mes y tenes 7 dias gratis para probarlo con tu negocio <span class="time">20:13</span></div>
             <div class="wa-msg sent">Tengo una tienda de ropa, me sirve? <span class="time">20:14</span></div>
             <div class="wa-msg received">Te re sirve, es justo para eso. pasame tu catalogo y en el dia te la dejo andando <span class="time">20:14</span></div>
             <div class="wa-typing" id="waTyping"><span></span><span></span><span></span></div>
@@ -1164,7 +1164,7 @@ footer .container {
       <div class="price-card reveal">
         <h3>Básico</h3>
         <p class="price-desc">Para negocios que arrancan</p>
-        <div class="price-amount">$29 <span>USD</span></div>
+        <div class="price-amount">$1.290 <span>UYU</span></div>
         <p class="price-period">por mes</p>
         <ul class="price-features">
           <li>Catálogo manual (hasta 50 productos)</li>
@@ -1173,13 +1173,13 @@ footer .container {
           <li>Respuestas naturales con IA</li>
           <li>Soporte por WhatsApp</li>
         </ul>
-        <span class="price-btn outline" style="opacity:0.5;cursor:default">Próximamente</span>
+        <a href="#" class="price-btn outline mp-plan-btn" id="btnBasico" data-plan="basico">Elegir plan</a>
       </div>
       <div class="price-card featured reveal">
         <div class="price-badge">POPULAR</div>
         <h3>Pro</h3>
         <p class="price-desc">Para negocios que venden en serio</p>
-        <div class="price-amount">$79 <span>USD</span></div>
+        <div class="price-amount">$3.490 <span>UYU</span></div>
         <p class="price-period">por mes</p>
         <ul class="price-features">
           <li>Todo lo del plan Básico</li>
@@ -1189,7 +1189,7 @@ footer .container {
           <li>Estado de pedidos y envíos</li>
           <li>Panel de métricas</li>
         </ul>
-        <span class="price-btn filled" style="opacity:0.5;cursor:default">Próximamente</span>
+        <a href="#" class="price-btn filled mp-plan-btn" id="btnPro" data-plan="pro">Elegir plan</a>
       </div>
     </div>
   </div>
@@ -1397,6 +1397,44 @@ setTimeout(() => {
     demoAddMsg('Hola! soy Lola. si tenes un negocio y queres saber como puedo ayudarte a vender, preguntame lo que quieras', 'received');
   }, 1500);
 }, 1000);
+
+// ═══════════════ MERCADOPAGO PLANS ═══════════════
+(async function loadPlans() {
+  try {
+    const resp = await fetch('/api/mp/plans');
+    const data = await resp.json();
+    if (data.basico && data.basico.init_point) {
+      const btn = document.getElementById('btnBasico');
+      btn.href = data.basico.init_point;
+      btn.target = '_blank';
+    }
+    if (data.pro && data.pro.init_point) {
+      const btn = document.getElementById('btnPro');
+      btn.href = data.pro.init_point;
+      btn.target = '_blank';
+    }
+  } catch (e) {
+    // Plans not configured yet — buttons stay as links to #
+  }
+})();
+
+// Post-payment result
+(function checkPaymentResult() {
+  const params = new URLSearchParams(window.location.search);
+  const result = params.get('mp_result');
+  if (!result) return;
+  // Clean URL
+  history.replaceState({}, '', window.location.pathname);
+  // Show toast
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:9999;padding:16px 32px;border-radius:12px;font-size:15px;font-weight:600;animation:fadeInUp 0.5s ease both;font-family:var(--sans);';
+  toast.style.background = 'var(--green)';
+  toast.style.color = 'var(--dark)';
+  toast.textContent = 'Suscripción iniciada. Te contactamos pronto para configurar Lola!';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 8000);
+})();
+
 </script>
 </body>
 </html>
