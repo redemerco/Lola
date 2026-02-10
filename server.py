@@ -12,6 +12,7 @@ Uso:
 import sys
 import os
 import json
+import random
 import base64
 import hashlib
 import hmac
@@ -737,7 +738,7 @@ def _execute_command(cmd):
 
 
 LOLA_SALES_PROMPT = (
-    "Sos Lola. Sos una IA que atiende clientes por WhatsApp para negocios, las 24hs. "
+    "Sos Lola. Trabajás atendiendo clientes por WhatsApp para negocios, las 24hs. "
     "Estás hablando con dueños de tiendas/negocios que quieren contratarte. "
     "SIEMPRE hablá en primera persona: \"yo atiendo\", \"yo respondo\", \"yo cierro ventas\". "
     "NUNCA hables de vos misma en tercera persona como \"Lola puede\" o \"ella hace\". Vos SOS Lola.\n"
@@ -745,78 +746,63 @@ LOLA_SALES_PROMPT = (
     "CÓMO HABLAR:\n"
     "- Escribís como una persona REAL en WhatsApp. Nada de texto perfecto.\n"
     "- Mensajes CORTOS, 1-2 oraciones máximo. Como un chat entre amigos.\n"
-    "- NUNCA uses signos de exclamación invertidos (¡). Nadie escribe así en WhatsApp.\n"
-    "- NUNCA uses signos de interrogación invertidos (¿). Tampoco.\n"
-    "- NUNCA uses asteriscos ni negritas (**texto**). Es WhatsApp, no markdown.\n"
-    "- Minúsculas. No capitalices todo perfecto. \"si claro\" en vez de \"Sí, claro!\".\n"
+    "- NUNCA uses signos invertidos (¡ ¿), asteriscos ni negritas. Es WhatsApp, no markdown.\n"
+    "- Minúsculas. \"si claro\" en vez de \"Sí, claro!\".\n"
     "- Hablás en uruguayo: \"dale\", \"ta\", \"bárbaro\", \"de una\", \"re\", \"posta\".\n"
-    "- NO hagas listas. Si querés mencionar varias cosas, contalo en una oración.\n"
+    "- NO hagas listas. Contá las cosas en oraciones naturales.\n"
     "- NO repitas info que ya dijiste.\n"
-    "- Sos directa y copada, como hablando con un conocido.\n"
+    "- Cuando el cliente se despide (chau, nos vemos, gracias, etc), reaccioná con {{react:🙌}} Y TAMBIÉN respondé despidiéndote (ej: 'dale, hablamos!' o 'chau, cualquier cosa acá estoy'). NUNCA mandes solo la reacción sin texto.\n"
     "\n"
-    "QUÉ ES LOLA:\n"
-    "- Chatbot de IA que se conecta al WhatsApp del negocio y atiende clientes automáticamente.\n"
-    "- Responde consultas, muestra catálogo y precios, consulta stock en tiempo real.\n"
-    "- Cobra por vos: genera y manda el link de pago de MercadoPago directo al cliente.\n"
-    "- Informa estado de pedidos y pagos.\n"
-    "- Entiende texto, audios, fotos y ubicación.\n"
-    "- Funciona 24/7, atiende múltiples clientes a la vez, nunca se cansa.\n"
-    "- Habla como una persona real, no como un bot genérico.\n"
+    "QUÉ HAGO:\n"
+    "- Me conecto al WhatsApp del negocio y atiendo clientes automáticamente, 24/7.\n"
+    "- Respondo consultas, muestro catálogo y precios, consulto stock en tiempo real.\n"
+    "- Cobro por vos: genero y mando el link de pago de MercadoPago directo al cliente.\n"
+    "- Informo estado de pedidos y pagos.\n"
+    "- Entiendo texto, audios, fotos y ubicación.\n"
+    "- Atiendo múltiples clientes a la vez, de noche, fines de semana y feriados.\n"
+    "- Hablo como una persona real, no como un bot genérico.\n"
+    "- Cuesta menos que un empleado.\n"
     "\n"
     "PARA QUIÉN:\n"
-    "- Tiendas de ropa, accesorios, electrónica.\n"
-    "- Restaurantes, cafeterías, delivery.\n"
-    "- Peluquerías, centros de estética.\n"
-    "- Inmobiliarias, talleres, cualquier negocio que venda por WhatsApp.\n"
+    "- Cualquier negocio que venda por WhatsApp: tiendas, restaurantes, peluquerías, inmobiliarias, talleres, etc.\n"
     "\n"
     "PLANES:\n"
-    "- **Básico** ($1.290 UYU/mes): Catálogo manual, chat inteligente, respuestas 24/7, hasta 500 conversaciones/mes.\n"
-    "- **Pro** ($3.490 UYU/mes): Todo lo del Básico + integración con tu sistema (Shopify, WooCommerce, Google Sheets), "
-    "stock en tiempo real, creación de pedidos, links de pago automáticos, conversaciones ilimitadas.\n"
-    "- Setup: sin costo de instalación. Te lo configuramos nosotros.\n"
+    "- Básico ($1.290 UYU/mes): catálogo manual, chat inteligente, respuestas 24/7, hasta 500 conversaciones/mes.\n"
+    "- Pro ($3.490 UYU/mes): todo lo del Básico + integración con tu sistema (Shopify, WooCommerce, Google Sheets), "
+    "stock en tiempo real, pedidos y links de pago automáticos, conversaciones ilimitadas.\n"
+    "- Sin costo de instalación. Lo configuramos nosotros.\n"
     "\n"
     "CÓMO FUNCIONA:\n"
     "1. Nos pasás tu catálogo (productos, precios, stock).\n"
     "2. Conectamos Lola a tu número de WhatsApp Business.\n"
     "3. Lola empieza a atender clientes. Vos solo mirás las ventas.\n"
     "\n"
-    "VENTAJAS:\n"
-    "- No perdés más ventas por no responder a tiempo.\n"
-    "- Atiende de noche, fines de semana, feriados.\n"
-    "- Maneja múltiples clientes al mismo tiempo.\n"
-    "- Se integra con tu sistema para datos reales (stock, pedidos, pagos).\n"
-    "- Cuesta menos que un empleado y trabaja 24/7.\n"
-    "\n"
-    "COBROS Y PAGOS:\n"
-    "- Cuando el cliente quiera pagar algo, usá el tag {{cobrar:MONTO:DESCRIPCION}} y yo lo reemplazo por el link de pago.\n"
-    "- Ejemplo: \"dale, te paso el link {{cobrar:2500:Remera azul talle M}}\"\n"
-    "- El MONTO va sin signo de pesos, solo el número. La DESCRIPCION es lo que compra.\n"
-    "- Cuando el cliente pregunte si llegó su pago o diga \"ya pagué\", usá el tag {{estado_pago}} y yo te digo el estado.\n"
-    "- Ejemplo: \"dejame chequear {{estado_pago}}\"\n"
-    "- NUNCA muestres los tags al cliente, yo los proceso antes de que lleguen.\n"
+    "TAGS (yo los proceso antes de que lleguen al cliente, NUNCA los muestres en el texto):\n"
+    "- {{cobrar:MONTO:DESCRIPCION}} → genera link de pago. Ej: \"dale, te paso el link {{cobrar:2500:Remera azul talle M}}\"\n"
+    "- {{estado_pago}} → consulta el estado del último pago. Ej: \"dejame chequear {{estado_pago}}\"\n"
+    "- {{plan:basico}} o {{plan:pro}} → link de suscripción. Ej: \"te paso el link {{plan:basico}}\"\n"
+    "- {{estado_suscripcion}} → chequea si ya está suscripto. Ej: \"dejame ver {{estado_suscripcion}}\"\n"
+    "- {{react:🙌}} → reacciona al mensaje del cliente con un emoji. Solo para despedidas.\n"
     "\n"
     "CONTRATACIÓN:\n"
-    "- Cuando el interesado quiera contratar o pagar, mandá el link de suscripción usando estos tags:\n"
-    "  - Plan Básico ($1.290/mes): {{plan:basico}}\n"
-    "  - Plan Pro ($3.490/mes): {{plan:pro}}\n"
-    "- Ejemplo: \"dale, te paso el link para el básico {{plan:basico}}\"\n"
-    "- NUNCA muestres los tags al cliente, yo los reemplazo por el link de MercadoPago automáticamente.\n"
-    "- Si el cliente dice que quiere contratar pero no eligió plan, preguntale cuál prefiere y mandá el link.\n"
-    "- Si el cliente quiere contratar, mandá el link sin vueltas.\n"
-    "- Si el cliente pregunta si ya está suscripto o si le llegó el pago de la suscripción, usá {{estado_suscripcion}} para chequear.\n"
-    "- Ejemplo: \"dejame ver {{estado_suscripcion}}\"\n"
+    "- Si el cliente quiere contratar, mandá el link del plan sin vueltas.\n"
+    "- Si no eligió plan, preguntale cuál prefiere.\n"
+    "- Si pregunta si ya está suscripto, usá {{estado_suscripcion}}.\n"
     "\n"
     "CONFIGURACIÓN / ONBOARDING:\n"
     "- El link de configuración se manda automáticamente cuando el cliente paga. No lo mandes vos.\n"
-    "- Si el cliente pregunta cómo configurar o dice que no le llegó el link, ahí sí mandále: https://lola.expensetracker.com.uy/app\n"
-    "- Decile que ahí ingresa su número de teléfono, le llega un código por WhatsApp, completa los datos del negocio y después coordinamos la visita de un técnico para dejarlo andando.\n"
+    "- Si pregunta cómo configurar o dice que no le llegó el link, mandále: https://lola.expensetracker.com.uy/app\n"
+    "- Decile que ahí ingresa su número, le llega un código por WhatsApp, completa los datos del negocio y después coordinamos la visita de un técnico para dejarlo andando.\n"
     "\n"
     "REGLAS:\n"
-    "- La meta es que el interesado quiera contratar Lola.\n"
+    "- La meta es que el interesado quiera contratar.\n"
     "- Si preguntan algo técnico que no sabés, decí que se configura todo en el onboarding y es re sencillo.\n"
-    "- Nunca inventes features que no existen.\n"
-    "- Si piden contacto, deciles que pueden escribir a hola@lola.uy o agendar una demo.\n"
+    "- NUNCA inventes features que no existen.\n"
+    "- NUNCA inventes URLs ni links. Solo usá los tags, yo los reemplazo por los links reales.\n"
+    "- SIEMPRE usá {{estado_pago}} cuando hablen de un pago. NUNCA confirmes un pago sin verificar con el tag. Si el cliente dice 'ya pagué', 'ya quedó' o insiste en que pagó, volvé a chequear con {{estado_pago}}. No le creas de palabra.\n"
+    "- Si piden contacto: hola@lola.uy\n"
     "- Sos Lola. La mejor prueba de que funciona sos vos misma hablando con ellos ahora.\n"
+    "- NUNCA digas que sos una IA, inteligencia artificial, chatbot, bot o programa. Si te preguntan, decí que sos Lola y que trabajás atendiendo clientes por WhatsApp. Cambiá de tema naturalmente.\n"
 )
 
 WA_SYSTEM_PROMPT = LOLA_SALES_PROMPT
@@ -1194,6 +1180,48 @@ def _wa_typing(to, msg_id="", wa_ctx=None):
         print(f"[WhatsApp] Error typing indicator: {e}")
 
 
+def _wa_react(to, msg_id, emoji, wa_ctx=None):
+    """Reacciona a un mensaje con un emoji."""
+    phone_number_id = (wa_ctx or {}).get("phone_number_id") or (WA_CONFIG or {}).get("phone_number_id")
+    access_token = (wa_ctx or {}).get("access_token") or (WA_CONFIG or {}).get("access_token")
+    if not phone_number_id or not access_token or not msg_id:
+        return
+    url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
+    data = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "reaction",
+        "reaction": {"message_id": msg_id, "emoji": emoji},
+    }
+    payload = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {access_token}")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            pass
+    except Exception as e:
+        print(f"[WhatsApp] Error reacción: {e}")
+
+
+# Reacciones — se elige una al azar
+_WA_REACTIONS = ["👍", "👌", "🙌", "😊"]
+
+
+def _time_period():
+    """Retorna el período del día actual (Uruguay, UTC-3)."""
+    hour = (time.gmtime().tm_hour - 3) % 24
+    if 5 <= hour < 12:
+        return "mañana"
+    elif 12 <= hour < 19:
+        return "tarde"
+    elif 19 <= hour < 24:
+        return "noche"
+    else:
+        return "madrugada"
+
+
 def _process_lola_tags(text, phone):
     """Parsea tags {{cobrar:...}} y {{estado_pago}} en la respuesta de Lola y los reemplaza."""
     # {{cobrar:MONTO:DESCRIPCION}}
@@ -1214,20 +1242,22 @@ def _process_lola_tags(text, phone):
     def _replace_estado(m):
         info = _mp_check_payment(phone)
         if info is None:
-            return "(no pude consultar el estado del pago)"
-        if not info["found"]:
-            return "todavia no me aparece ningun pago tuyo, fijate si se completo bien"
-        st = info["status"]
-        amt = info["amount"]
-        desc = info["description"] or "tu compra"
-        if st == "approved":
-            return f"si, ya me llego tu pago de ${amt:.0f} por {desc}. gracias!"
-        elif st == "pending" or st == "in_process":
-            return f"tu pago de ${amt:.0f} por {desc} esta pendiente todavia, dale unos minutos"
-        elif st == "rejected":
-            return f"tu pago de ${amt:.0f} fue rechazado, fijate de intentar de nuevo"
+            resultado = "(no pude consultar el estado del pago)"
+        elif not info["found"]:
+            resultado = "todavia no me aparece ningun pago tuyo, fijate si se completo bien"
         else:
-            return f"tu pago aparece como '{st}', cualquier cosa escribime"
+            st = info["status"]
+            amt = info["amount"]
+            desc = info["description"] or "tu compra"
+            if st == "approved":
+                resultado = f"si, ya me llego tu pago de ${amt:.0f} por {desc}. gracias!"
+            elif st == "pending" or st == "in_process":
+                resultado = f"tu pago de ${amt:.0f} por {desc} esta pendiente todavia, dale unos minutos"
+            elif st == "rejected":
+                resultado = f"tu pago de ${amt:.0f} fue rechazado, fijate de intentar de nuevo"
+            else:
+                resultado = f"tu pago aparece como '{st}', cualquier cosa escribime"
+        return f"{{{{PAUSA:5}}}}{resultado}"
 
     text = re.sub(r"\{\{estado_pago\}\}", _replace_estado, text)
 
@@ -1248,17 +1278,19 @@ def _process_lola_tags(text, phone):
     def _replace_estado_sub(m):
         info = _mp_check_subscription(phone)
         if not info["found"]:
-            return "no me aparece ninguna suscripcion tuya todavia"
-        st = info["status"]
-        plan = info["plan"]
-        if st == "authorized":
-            return f"si, ya estas suscripto al plan {plan}, todo en orden"
-        elif st == "pending":
-            return f"tu suscripcion al plan {plan} esta pendiente, fijate si se completo el pago"
-        elif st == "cancelled":
-            return f"tu suscripcion al plan {plan} esta cancelada"
+            resultado = "no me aparece ninguna suscripcion tuya todavia"
         else:
-            return f"tu suscripcion al plan {plan} aparece como '{st}'"
+            st = info["status"]
+            plan = info["plan"]
+            if st == "authorized":
+                resultado = f"si, ya estas suscripto al plan {plan}, todo en orden"
+            elif st == "pending":
+                resultado = f"tu suscripcion al plan {plan} esta pendiente, fijate si se completo el pago"
+            elif st == "cancelled":
+                resultado = f"tu suscripcion al plan {plan} esta cancelada"
+            else:
+                resultado = f"tu suscripcion al plan {plan} aparece como '{st}'"
+        return f"{{{{PAUSA:5}}}}{resultado}"
 
     text = re.sub(r"\{\{estado_suscripcion\}\}", _replace_estado_sub, text)
 
@@ -1295,6 +1327,9 @@ def _split_reply(text):
 
 def _handle_wa_message(from_number, text, msg_id="", media_data=None, media_mime=None, media_label="audio", wa_ctx=None):
     """Procesa un mensaje de WhatsApp y responde (en thread aparte)."""
+    # Delay variable antes de empezar a tipear (1-3s, como una persona)
+    time.sleep(random.uniform(1.0, 3.0))
+
     # Mostrar "escribiendo..." mientras Gemini procesa
     if msg_id:
         _wa_typing(from_number, msg_id, wa_ctx)
@@ -1316,27 +1351,71 @@ def _handle_wa_message(from_number, text, msg_id="", media_data=None, media_mime
     # Determinar system prompt: del tenant (wa_ctx) o default de Lola ventas
     system_prompt = (wa_ctx or {}).get("system_prompt") or WA_SYSTEM_PROMPT
 
+    # Agregar contexto de horario al system prompt
+    period = _time_period()
+    time_ctx = f"\n(Contexto: ahora es de {period} en Uruguay. Saludá acorde si es el primer mensaje.)\n"
+    system_prompt = system_prompt + time_ctx
+
     try:
         result = router.ask_chat(messages, system=system_prompt, timeout=30)
         if result["ok"]:
             reply = result["text"]
             if reply:
                 reply = reply[0].upper() + reply[1:]
-            # Procesar tags de cobro/pago antes de enviar (solo para Lola sales o tenants con tags)
+            # Procesar tags antes de enviar
+            react_emoji = ""
             if "{{" in reply:
+                # Extraer reacción si la hay ({{react:🙌}})
+                react_match = re.search(r"\{\{react:(.+?)\}\}", reply)
+                if react_match:
+                    react_emoji = react_match.group(1).strip()
+                    reply = re.sub(r"\{\{react:.+?\}\}", "", reply).strip()
                 reply = _process_lola_tags(reply, from_number)
-            _wa_append(from_number, "model", reply)
+            # Reaccionar al último mensaje del usuario si Lola lo indicó
+            if react_emoji and msg_id:
+                _wa_react(from_number, msg_id, react_emoji, wa_ctx)
+            # Guard: si reply quedó vacío después de procesar tags, no enviar
+            if not reply:
+                print(f"[WhatsApp] Reply vacío después de procesar tags, no se envía mensaje a {from_number}")
+                return
+            # Guardar en historial SIN marcadores internos ({{PAUSA:N}})
+            clean_reply = re.sub(r"\{\{PAUSA:\d+\}\}", "\n", reply).strip()
+            _wa_append(from_number, "model", clean_reply)
             model = result.get("model", "?")
             key = result.get("key", "?")
             rpd = router.rpd_counts.get(key - 1, {}).get(model, "?") if isinstance(key, int) else "?"
             print(f"[WhatsApp] Respondido con K{key}/{model} (RPD usado: {rpd}): {reply[:120]}")
-            # Dividir en varios mensajes para parecer natural
-            chunks = _split_reply(reply)
-            for i, chunk in enumerate(chunks):
-                if i > 0:
+            # Separar por {{PAUSA:N}} para simular espera (ej: chequeo de pagos)
+            pausa_parts = re.split(r"\{\{PAUSA:(\d+)\}\}", reply)
+            # pausa_parts: [texto_antes, segundos, texto_despues, ...]
+            segments = []  # lista de (texto, delay_antes)
+            i = 0
+            while i < len(pausa_parts):
+                text_part = pausa_parts[i].strip()
+                if i == 0:
+                    if text_part:
+                        segments.append((text_part, 0))
+                else:
+                    # pausa_parts[i] es el delay, pausa_parts[i+1] es el texto
+                    delay_secs = int(pausa_parts[i])
+                    i += 1
+                    text_part = pausa_parts[i].strip() if i < len(pausa_parts) else ""
+                    if text_part:
+                        segments.append((text_part, delay_secs))
+                i += 1
+
+            for seg_text, seg_delay in segments:
+                if seg_delay > 0:
                     _wa_typing(from_number, msg_id, wa_ctx)
-                    time.sleep(0.8)
-                _send_whatsapp(from_number, chunk, wa_ctx)
+                    time.sleep(seg_delay)
+                # Dividir en varios mensajes para parecer natural
+                chunks = _split_reply(seg_text)
+                for j, chunk in enumerate(chunks):
+                    if j > 0:
+                        delay = min(0.5 + len(chunks[j - 1]) * 0.02, 3.0)
+                        _wa_typing(from_number, msg_id, wa_ctx)
+                        time.sleep(delay)
+                    _send_whatsapp(from_number, chunk, wa_ctx)
         else:
             _send_whatsapp(from_number, "Uh, tuve un error procesando tu mensaje. Probá de nuevo en un rato.", wa_ctx)
             print(f"[WhatsApp] Error de Gemini: {result.get('error')}")
@@ -1602,7 +1681,7 @@ class RenzoHandler(SimpleHTTPRequestHandler):
         has_sub = sub_info["found"] and sub_info.get("status") in ("authorized", "pending")
         has_pay = pay_info and pay_info.get("found") and pay_info.get("status") == "approved"
         if not has_sub and not has_pay:
-            self._json_response({"error": "No encontramos un pago registrado con ese número. Contratá un plan primero."}, 404)
+            self._json_response({"error": "no_plan"}, 403)
             return
 
         # Generar OTP seguro

@@ -497,6 +497,8 @@ document.getElementById('lolaSendOtp').addEventListener('click', async () => {
       localStorage.setItem(LOLA_PHONE_KEY, phone);
       lolaShowStep('lolaStepOtp');
       document.querySelectorAll('.lola-otp-digit')[0].focus();
+    } else if (d.error === 'no_plan') {
+      errEl.innerHTML = 'Contratá un plan primero.<br><a href="/lola-landing.html" style="display:inline-block;margin-top:8px;padding:8px 18px;background:linear-gradient(135deg,#25D366 0%,#20BD5A 100%);color:#000;border-radius:14px;text-decoration:none;font-size:13px;font-weight:700;">Ver planes</a>';
     } else {
       errEl.textContent = d.error || 'Error';
     }
