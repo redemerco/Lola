@@ -18,12 +18,13 @@ import hashlib
 import hmac
 import re
 import sqlite3
+import shlex
 import subprocess
 import threading
 import time
 import urllib.request
 import urllib.error
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 from cryptography.fernet import Fernet
@@ -499,6 +500,20 @@ except FileNotFoundError:
     WA_CONFIG = None
     print(f"[WhatsApp] No se encontró {_wa_config_path}, webhook desactivado")
 
+# Instagram Messaging API config
+_ig_config_path = os.path.expanduser("~/.instagram-config.json")
+try:
+    with open(_ig_config_path) as f:
+        IG_CONFIG = json.load(f)
+    if IG_CONFIG.get("access_token") and IG_CONFIG.get("ig_user_id"):
+        print(f"[Instagram] Config cargada desde {_ig_config_path}")
+    else:
+        print(f"[Instagram] Config encontrada pero incompleta, webhook desactivado")
+        IG_CONFIG = None
+except FileNotFoundError:
+    IG_CONFIG = None
+    print(f"[Instagram] No se encontró {_ig_config_path}, webhook desactivado")
+
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ═══════════════ OTP / AUTH / TENANTS ═══════════════
@@ -725,7 +740,7 @@ def _execute_command(cmd):
     """Ejecuta un comando validado con timeout."""
     try:
         result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30,
+            shlex.split(cmd), capture_output=True, text=True, timeout=30,
         )
         output = result.stdout
         if result.stderr:
@@ -1222,6 +1237,95 @@ def _time_period():
         return "madrugada"
 
 
+# ═══════════════ INSTAGRAM ═══════════════
+
+# Historial de conversaciones por Instagram user ID
+_ig_history = {}
+_IG_HISTORY_MAX = 20
+_IG_HISTORY_TTL = 30 * 60  # 30 min
+
+# Deduplicación de mensajes de Instagram
+_ig_seen_ids = {}
+_IG_SEEN_TTL = 120  # 2 minutos
+
+
+def _ig_get_history(user_id):
+    """Devuelve el historial de un usuario de Instagram, limpiando si expiró."""
+    entry = _ig_history.get(user_id)
+    if entry and (time.time() - entry["ts"]) > _IG_HISTORY_TTL:
+        del _ig_history[user_id]
+        return []
+    return entry["messages"] if entry else []
+
+
+def _ig_append(user_id, role, text):
+    """Agrega un mensaje al historial de un usuario de Instagram."""
+    if user_id not in _ig_history:
+        _ig_history[user_id] = {"messages": [], "ts": time.time()}
+    entry = _ig_history[user_id]
+    entry["ts"] = time.time()
+    entry["messages"].append({"role": role, "text": text})
+    while len(entry["messages"]) > _IG_HISTORY_MAX:
+        entry["messages"].pop(0)
+
+
+def _send_instagram(to, text):
+    """Envía un mensaje de texto via Instagram Messaging API."""
+    if not IG_CONFIG:
+        return
+    url = f"https://graph.facebook.com/v23.0/{IG_CONFIG['ig_user_id']}/messages"
+    payload = json.dumps({
+        "recipient": {"id": to},
+        "message": {"text": text},
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {IG_CONFIG['access_token']}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            print(f"[Instagram] Mensaje enviado a {to}: {resp.status}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        print(f"[Instagram] Error enviando a {to}: {e.code} {body}")
+    except Exception as e:
+        print(f"[Instagram] Error enviando a {to}: {e}")
+
+
+def _handle_ig_message(from_id, text):
+    """Procesa un mensaje de Instagram y responde."""
+    history = _ig_get_history(from_id)
+
+    user_msg = {"role": "user", "text": text or ""}
+    _ig_append(from_id, "user", text)
+    messages = history + [user_msg]
+
+    try:
+        result = router.ask_chat(messages, system=WA_SYSTEM_PROMPT, timeout=30)
+        if result["ok"]:
+            reply = result["text"]
+            if reply:
+                reply = reply[0].upper() + reply[1:]
+            # Procesar tags de cobro/pago
+            if "{{" in reply:
+                reply = _process_lola_tags(reply, from_id)
+            _ig_append(from_id, "model", reply)
+            model = result.get("model", "?")
+            key = result.get("key", "?")
+            print(f"[Instagram] Respondido con K{key}/{model}: {reply[:120]}")
+            # Dividir en varios mensajes para parecer natural
+            chunks = _split_reply(reply)
+            for i, chunk in enumerate(chunks):
+                if i > 0:
+                    time.sleep(0.8)
+                _send_instagram(from_id, chunk)
+        else:
+            _send_instagram(from_id, "Uh, tuve un error procesando tu mensaje. Probá de nuevo en un rato.")
+            print(f"[Instagram] Error de Gemini: {result.get('error')}")
+    except Exception as e:
+        print(f"[Instagram] Excepción procesando mensaje de {from_id}: {e}")
+        _send_instagram(from_id, "Se me rompió algo, probá de nuevo.")
+
+
 def _process_lola_tags(text, phone):
     """Parsea tags {{cobrar:...}} y {{estado_pago}} en la respuesta de Lola y los reemplaza."""
     # {{cobrar:MONTO:DESCRIPCION}}
@@ -1463,6 +1567,9 @@ class RenzoHandler(SimpleHTTPRequestHandler):
         if path == "/webhook":
             self._handle_webhook_verify(parsed.query)
             return
+        if path == "/ig-webhook":
+            self._handle_ig_webhook_verify(parsed.query)
+            return
         if path == "/api/mp/plans":
             self._handle_mp_get_plans()
             return
@@ -1502,6 +1609,8 @@ class RenzoHandler(SimpleHTTPRequestHandler):
             self._handle_auth_session()
         elif path == "/webhook":
             self._handle_webhook_incoming()
+        elif path == "/ig-webhook":
+            self._handle_ig_webhook_incoming()
         elif path == "/api/mp/setup-plans":
             self._handle_mp_setup_plans()
         elif path == "/api/mp/cancel":
@@ -1643,6 +1752,81 @@ class RenzoHandler(SimpleHTTPRequestHandler):
                         _wa_queue_message(from_number, msg_id, {
                             "type": "location", "text": f"(el usuario compartió su ubicación: {loc_text})",
                         }, wa_ctx)
+
+    # ═══════════════ INSTAGRAM WEBHOOK ═══════════════
+
+    def _handle_ig_webhook_verify(self, query_string):
+        """GET /ig-webhook - Verificación de Meta para Instagram."""
+        if not IG_CONFIG:
+            self.send_error(503, "Instagram no configurado")
+            return
+        params = parse_qs(query_string)
+        mode = params.get("hub.mode", [None])[0]
+        token = params.get("hub.verify_token", [None])[0]
+        challenge = params.get("hub.challenge", [None])[0]
+
+        if mode == "subscribe" and token == IG_CONFIG["verify_token"]:
+            print(f"[Instagram] Webhook verificado")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(challenge.encode("utf-8"))
+        else:
+            print(f"[Instagram] Verificación fallida: mode={mode}, token={token}")
+            self.send_error(403, "Verificación fallida")
+
+    def _handle_ig_webhook_incoming(self):
+        """POST /ig-webhook - Recibir mensajes de Instagram."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+        except Exception:
+            self._json_response({"status": "ok"})
+            return
+
+        # Responder 200 inmediatamente para no timeout con Meta
+        self._json_response({"status": "ok"})
+
+        if not IG_CONFIG:
+            return
+
+        # Extraer mensajes de la estructura de Instagram
+        for entry in body.get("entry", []):
+            for messaging in entry.get("messaging", []):
+                sender_id = messaging.get("sender", {}).get("id", "")
+                # Ignorar mensajes enviados por nosotros mismos
+                if sender_id == IG_CONFIG.get("ig_user_id"):
+                    continue
+                if not sender_id:
+                    continue
+
+                msg = messaging.get("message", {})
+                msg_id = msg.get("mid", "")
+
+                # Deduplicar
+                now = time.time()
+                if msg_id and msg_id in _ig_seen_ids:
+                    print(f"[Instagram] Mensaje duplicado ignorado: {msg_id}")
+                    continue
+                if msg_id:
+                    _ig_seen_ids[msg_id] = now
+                    expired = [k for k, v in _ig_seen_ids.items() if now - v > _IG_SEEN_TTL]
+                    for k in expired:
+                        del _ig_seen_ids[k]
+
+                text = msg.get("text", "")
+                if not text:
+                    continue
+
+                print(f"[Instagram] Mensaje de {sender_id}: {text[:80]}")
+
+                # Procesar en thread aparte para no bloquear
+                t = threading.Thread(
+                    target=_handle_ig_message,
+                    args=(sender_id, text),
+                    daemon=True,
+                )
+                t.start()
 
     # ═══════════════ AUTH / OTP ═══════════════
 
@@ -2409,12 +2593,13 @@ class RenzoHandler(SimpleHTTPRequestHandler):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), RenzoHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), RenzoHandler)
     print(f"🚀 RenzoGPT corriendo en http://0.0.0.0:{port}")
     print(f"   Router: {len(router.keys)} keys × {len(router.models)} modelos")
     wa_num_count = _db_wa_numbers_count()
     print(f"   WhatsApp: {'habilitado' if WA_CONFIG else 'deshabilitado'} ({wa_num_count} números de tenants)")
     print(f"   MercadoPago: {'habilitado' if MP_CONFIG else 'deshabilitado'}")
+    print(f"   Instagram: {'habilitado' if IG_CONFIG else 'deshabilitado'}")
     print(f"   Ctrl+C para frenar")
     try:
         server.serve_forever()

@@ -219,6 +219,16 @@ def _require_admin(handler):
 }
 ```
 
+### `~/.instagram-config.json`
+```json
+{
+  "ig_user_id": "xxx",
+  "access_token": "xxx",
+  "verify_token": "xxx"
+}
+```
+⚠️ El `access_token` se genera desde Meta App > API de Instagram > Generar token. El `ig_user_id` aparece al lado del nombre de la cuenta.
+
 ### `~/.lola-master.key`
 - Existe, 44 bytes (Fernet key), permisos `600`
 - Respaldada en `~/.lola-backups/lola-master.key`
