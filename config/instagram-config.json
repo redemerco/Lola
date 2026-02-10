@@ -1,0 +1,9 @@
+{
+    "_comment": "Instagram Messaging API credentials. Server reads this from ~/.instagram-config.json",
+    "_how_to_get": "Meta App > API de Instagram > Generar token. The ig_user_id is shown next to your account name.",
+
+    "ig_user_id": "",
+    "access_token": "",
+    "verify_token": "",
+    "app_secret": ""
+}
